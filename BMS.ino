@@ -11,6 +11,7 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.See the
  * GNU General Public License for more details.
  */
+#define VERSION F("0.99")
 
 #include "Arduino.h"
 #include <avr/wdt.h>
@@ -20,7 +21,6 @@ extern "C" {
 	#include "utility/twi.h"
 }
 
-#define VERSION F("0.90")
 #define DEBUG_TO_SERIAL
 
 #define BMS_QTY						16
@@ -122,7 +122,7 @@ void I2C_Response() {
 	i2c_write(5);									// op_code
 	i2c_write(bms[bms_idx] & 0xFF);					// V
 	i2c_write(bms[bms_idx] >> 8);					// V
-	i2c_write(bms_idx == 1 ? temp : BMS_NO_TEMP);	// temp
+	i2c_write(bms_idx == 0 ? temp : BMS_NO_TEMP);	// temp
 	i2c_write(0);									// Q%
 	i2c_write(0);									// err
 	crc = 0 - crc;
