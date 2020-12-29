@@ -20,7 +20,7 @@ extern "C" {
 	#include "utility/twi.h"
 }
 
-#define VERSION F("1.00")
+#define VERSION F("0.90")
 #define DEBUG_TO_SERIAL
 
 #define BMS_QTY						16
@@ -150,7 +150,7 @@ void BMS_read(void)
 			read_buffer[read_idx-1] = '\0';
 			read_idx = 0;
 			uint16_t d;
-			DEBUG(F("Read: "));
+			DEBUG(F("UART: "));
 			if(read_buffer[0] == 'T') {
 				DEBUG(F("T "));
 				d = atoi(read_buffer + 1);
@@ -158,7 +158,10 @@ void BMS_read(void)
 			} else {
 				d = atoi(read_buffer);
 				if(d) {
-					ATOMIC_BLOCK(ATOMIC_FORCEON) for(uint8_t i = 0; i < BMS_QTY; i++) bms[i] = d;
+					ATOMIC_BLOCK(ATOMIC_FORCEON) for(uint8_t i = 0; i < BMS_QTY; i++) {
+						bms[i] = d++;
+						if(bms_full && d > bms_full+1) d = bms_full+1;
+					}
 					if(!bitRead(flags, f_BMS_Ready)) {
 						i2c_set_slave_addr(bms_idx + 1);
 						bitSet(flags, f_BMS_Ready);
@@ -211,7 +214,7 @@ void loop()
 	wdt_reset(); sleep_cpu();
 #ifdef DEBUG_TO_SERIAL
 	if(bms_idx_prev != bms_idx) {
-		DEBUG(F("R_"));
+		DEBUG(F("I2C_R_"));
 		DEBUG(bms_idx_prev + 1);
 		DEBUG(F("->"));
 		DEBUGN(bms[bms_idx_prev]);
@@ -232,7 +235,7 @@ void loop()
 	}
 	// I2C slave receive
 	if(i2c_receive_idx && i2c_receive_idx > i2c_receive[0]) { // i2c write
-		DEBUG(F("W: "));
+		DEBUG(F("I2C_W: "));
 		if(i2c_receive[0] >= sizeof(i2c_receive)) {
 			DEBUG(F("LEN ERROR!"));
 			i2c_receive_idx = 0;
