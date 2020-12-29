@@ -65,8 +65,12 @@ uint8_t  flags = 0;					// f_*
 uint16_t bms[BMS_QTY];				// V, hundreds
 uint8_t  bms_idx = 0;
 uint8_t  bms_idx_prev = 0;
+uint16_t bms_min = 0;				// V, hundreds
+uint16_t bms_full = 0;				// V, hundreds
+uint8_t  map_mode = 0;
 uint8_t  temp = BMS_NO_TEMP;		// C, +50
 uint8_t  crc;
+uint8_t  error = 0;
 char     read_buffer[32];
 uint8_t  i2c_receive[32];
 uint8_t  i2c_receive_idx = 0;
@@ -190,7 +194,7 @@ void setup()
 		eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 	}
 	eeprom_read_block(&work, &EEPROM.work, sizeof(EEPROM.work));
-	DEBUG(F("Read period, ms: ")); DEBUGN(work.BMS_read_period);
+	DEBUG(F("Read UART period, ms: ")); DEBUGN(work.BMS_read_period);
 
 	//
 	Wire.begin();
@@ -216,14 +220,17 @@ void loop()
 #endif
 	static uint32_t led_flashing, bms_reading;
 	uint32_t m = millis();
-	if(m - led_flashing > 1500UL) {
+	if(m - led_flashing > (error == 0 ? 1500UL : 200UL)) {
 		led_flashing = m;
+		if(error) error--;
 	    *portOutputRegister(digitalPinToPort(LED_PD)) ^= digitalPinToBitMask(LED_PD);
 	}
+	// Read from UART
 	if(m - bms_reading > work.BMS_read_period) {
 		bms_reading = m;
 		BMS_read();
 	}
+	// I2C slave receive
 	if(i2c_receive_idx && i2c_receive_idx > i2c_receive[0]) { // i2c write
 		DEBUG(F("W: "));
 		if(i2c_receive[0] >= sizeof(i2c_receive)) {
@@ -231,13 +238,22 @@ void loop()
 			i2c_receive_idx = 0;
 		} else {
 			uint8_t crc = 0;
-			for(uint8_t i = 0; i < i2c_receive[0]; i++) {
+			for(uint8_t i = 0; i <= i2c_receive[0]; i++) { // +CRC
 				crc += i2c_receive[i];
 				DEBUGH(i2c_receive[i]);
 				DEBUG(" ");
 			}
-			if(crc != 0) DEBUG("- CRC ERROR!");
-			memcpy(i2c_receive, i2c_receive + i2c_receive[0] + 1, i2c_receive_idx -= i2c_receive[0] + 1);
+			if(crc != 0) {
+				error = 50;
+				DEBUG("- CRC ERROR!");
+			} else if(i2c_receive[0] == 4) { // I2CCom_JobWR
+				bms_min = i2c_receive[2] + 200;
+				bms_full = i2c_receive[3] + 200;
+				map_mode = i2c_receive[4];
+			}
+			if(i2c_receive_idx > i2c_receive[0] + 1) {
+				memcpy(i2c_receive, i2c_receive + i2c_receive[0] + 1, i2c_receive_idx -= i2c_receive[0] + 1);
+			} else i2c_receive_idx = 0;
 		}
 		DEBUG("\n");
 	}
