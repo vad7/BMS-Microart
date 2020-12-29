@@ -39,9 +39,11 @@ extern "C" {
 
 #ifdef DEBUG_TO_SERIAL
 #define DEBUG(s) Serial.print(s)
+#define DEBUGH(h) Serial.print(h, HEX)
 #define DEBUGN(s) Serial.println(s)
 #else
 #define DEBUG(s)
+#define DEBUGH(h)
 #define DEBUGN(s)
 #endif
 
@@ -56,12 +58,18 @@ struct _EEPROM {
 
 struct _EEPROM EEMEM EEPROM;
 
+enum {
+	f_BMS_Ready = 0
+};
+uint8_t  flags = 0;					// f_*
 uint16_t bms[BMS_QTY];				// V, hundreds
 uint8_t  bms_idx = 0;
-uint8_t  bms_idx_prev = 255;
+uint8_t  bms_idx_prev = 0;
 uint8_t  temp = BMS_NO_TEMP;		// C, +50
 uint8_t  crc;
 char     read_buffer[32];
+uint8_t  i2c_receive[32];
+uint8_t  i2c_receive_idx = 0;
 uint8_t  read_idx = 0;
 
 // Called in delay()
@@ -95,7 +103,7 @@ void WaitKeysRelease(void)
 
 void i2c_set_slave_addr(uint8_t addr)
 {
-	TWAR = addr << 1;
+	TWAR = (addr << 1) | 1; // +broardcast addr(0)
 }
 
 void i2c_write(uint8_t d)
@@ -121,9 +129,10 @@ void I2C_Response() {
 
 void I2C_Receive(int howMany) {
 	(void)howMany;  // unused
+	if(i2c_receive_idx >= sizeof(i2c_receive)) return;
 	while(Wire.available()) {
-		char c = Wire.read();
-		DEBUG(c);
+		i2c_receive[i2c_receive_idx++] = Wire.read();
+		if(i2c_receive_idx >= sizeof(i2c_receive)) break;
 	}
 }
 
@@ -133,14 +142,27 @@ void BMS_read(void)
 		int16_t r = Serial.read();
 		if(r == -1) break;
 		read_buffer[read_idx++] = (char)r;
-		if(read_idx >= sizeof(read_buffer)-1) break;
-	}
-	if(read_idx >= 4) {
-		read_buffer[read_idx] = '\0';
-		uint16_t d = atoi(read_buffer);
-		DEBUG(F("Read ")); DEBUGN(d);
-		if(d) {
-			ATOMIC_BLOCK(ATOMIC_FORCEON) for(uint8_t i = 0; i < BMS_QTY; i++) bms[i] = d;
+		if(r == '\r' || read_idx == sizeof(read_buffer)-1) {
+			read_buffer[read_idx-1] = '\0';
+			read_idx = 0;
+			uint16_t d;
+			DEBUG(F("Read: "));
+			if(read_buffer[0] == 'T') {
+				DEBUG(F("T "));
+				d = atoi(read_buffer + 1);
+				temp = d + 50;
+			} else {
+				d = atoi(read_buffer);
+				if(d) {
+					ATOMIC_BLOCK(ATOMIC_FORCEON) for(uint8_t i = 0; i < BMS_QTY; i++) bms[i] = d;
+					if(!bitRead(flags, f_BMS_Ready)) {
+						i2c_set_slave_addr(bms_idx + 1);
+						bitSet(flags, f_BMS_Ready);
+					}
+				}
+			}
+			DEBUGN(d);
+			break;
 		}
 	}
 }
@@ -168,14 +190,16 @@ void setup()
 		eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 	}
 	eeprom_read_block(&work, &EEPROM.work, sizeof(EEPROM.work));
+	DEBUG(F("Read period, ms: ")); DEBUGN(work.BMS_read_period);
+
 	//
 	Wire.begin();
 	Wire.setClock(I2C_FREQ);
 	Wire.onRequest(I2C_Response); // register event
 	Wire.onReceive(I2C_Receive); // register event
-	i2c_set_slave_addr(bms_idx + 1);
+	i2c_set_slave_addr(0);
 	pinMode(LED_PD, OUTPUT);
-	FlashLED(3, 3, 3);
+	FlashLED(4, 1, 1);
 }
 
 void loop()
@@ -183,10 +207,10 @@ void loop()
 	wdt_reset(); sleep_cpu();
 #ifdef DEBUG_TO_SERIAL
 	if(bms_idx_prev != bms_idx) {
-		DEBUG(F("BMS_"));
-		DEBUG(bms_idx + 1);
+		DEBUG(F("R_"));
+		DEBUG(bms_idx_prev + 1);
 		DEBUG(F("->"));
-		DEBUGN(bms[bms_idx]);
+		DEBUGN(bms[bms_idx_prev]);
 		bms_idx_prev = bms_idx;
 	}
 #endif
@@ -199,6 +223,23 @@ void loop()
 	if(m - bms_reading > work.BMS_read_period) {
 		bms_reading = m;
 		BMS_read();
+	}
+	if(i2c_receive_idx && i2c_receive_idx > i2c_receive[0]) { // i2c write
+		DEBUG(F("W: "));
+		if(i2c_receive[0] >= sizeof(i2c_receive)) {
+			DEBUG(F("LEN ERROR!"));
+			i2c_receive_idx = 0;
+		} else {
+			uint8_t crc = 0;
+			for(uint8_t i = 0; i < i2c_receive[0]; i++) {
+				crc += i2c_receive[i];
+				DEBUGH(i2c_receive[i]);
+				DEBUG(" ");
+			}
+			if(crc != 0) DEBUG("- CRC ERROR!");
+			memcpy(i2c_receive, i2c_receive + i2c_receive[0] + 1, i2c_receive_idx -= i2c_receive[0] + 1);
+		}
+		DEBUG("\n");
 	}
 	//delay(MAIN_LOOP_PERIOD);
 }
