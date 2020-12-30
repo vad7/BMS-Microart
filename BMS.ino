@@ -22,10 +22,10 @@ extern "C" {
 }
 
 #define DEBUG_TO_SERIAL
+#define BMS_SERIAL Serial
 
 #define BMS_QTY_MAX				16
 #define I2C_FREQ					2500
-//#define
 
 #define KEY1_PD						2
 #define LED_PD						LED_BUILTIN
@@ -36,21 +36,22 @@ extern "C" {
 #define MAIN_LOOP_PERIOD			1		// msec
 #define BMS_NO_TEMP					255
 
-
 #ifdef DEBUG_TO_SERIAL
 #define DEBUG(s) Serial.print(s)
-#define DEBUGH(h) Serial.print(h, HEX)
 #define DEBUGN(s) Serial.println(s)
+#define DEBUG2(s) { if(bitRead(flags, f_DebugFull)) Serial.print(s); }
+#define DEBUG2N(s) { if(bitRead(flags, f_DebugFull)) Serial.println(s); }
 #else
 #define DEBUG(s)
-#define DEBUGH(h)
 #define DEBUGN(s)
+#define DEBUG2(s)
+#define DEBUG2N(s)
 #endif
 
 struct WORK {
 	uint8_t  bms_qty;
 	uint8_t  mode;
-	uint32_t BMS_read_period;		// ms
+	uint32_t UART_read_period;		// ms
 } work;
 
 struct _EEPROM {
@@ -60,10 +61,12 @@ struct _EEPROM {
 struct _EEPROM EEMEM EEPROM;
 
 enum {
-	f_BMS_Ready = 0
+	f_BMS_Ready = 0,
+	f_DebugFull
 };
 uint8_t  flags = 0;					// f_*
-uint16_t bms[BMS_QTY_MAX];				// V, hundreds
+uint16_t bms[BMS_QTY_MAX];			// V, hundreds
+uint8_t bms_Q[BMS_QTY_MAX];			// %
 uint8_t  bms_idx = 0;
 uint8_t  bms_idx_prev = 0;
 uint16_t bms_min = 0;				// V, hundreds
@@ -124,7 +127,7 @@ void I2C_Response() {
 	i2c_write(bms[bms_idx] & 0xFF);					// V
 	i2c_write(bms[bms_idx] >> 8);					// V
 	i2c_write(bms_idx == 0 ? temp : BMS_NO_TEMP);	// temp
-	i2c_write(0);									// Q%
+	i2c_write(bms_Q[bms_idx]);						// Q%
 	i2c_write(0);									// err
 	crc = 0 - crc;
 	i2c_write(crc);
@@ -141,41 +144,56 @@ void I2C_Receive(int howMany) {
 	}
 }
 
-void BMS_read(void)
+void UART_read(void)
 {
-	while(Serial.available()) {
-		int16_t r = Serial.read();
+	while(BMS_SERIAL.available()) {
+		int16_t r = BMS_SERIAL.read();
 		if(r == -1) break;
-		read_buffer[read_idx++] = (char)r;
+		read_buffer[read_idx++] = r;
 		if(r == '\r' || read_idx == sizeof(read_buffer)-1) {
 			read_buffer[read_idx-1] = '\0';
 			read_idx = 0;
-			uint16_t d;
-			DEBUG(F("UART: "));
-			if(strncmp(read_buffer, "TEMP", 4) == 0) {
-				DEBUG(F("T="));
-				d = atoi(read_buffer + 4);
+			char *p = strchr(read_buffer, '=');
+			if(p == NULL) break;
+			*p = '\0';
+			DEBUG(F("UART: ")); DEBUG(read_buffer);	DEBUG('=');
+			uint16_t d = atoi(p + 1);
+			if(strncmp(read_buffer, "temp", 4) == 0) {
 				temp = d + 50;
 				DEBUGN(d);
-			} else if(strncmp(read_buffer, "PERIOD", 6) == 0) {
-					DEBUG(F("P="));
-					work.BMS_read_period = atoi(read_buffer + 6);
-					eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
-					DEBUGN(work.BMS_read_period);
-			} else {
-				d = atoi(read_buffer);
-				DEBUG(F("V="));	DEBUGN(d);
+			} else if(strncmp(read_buffer, "cells", 5) == 0) {
+				work.bms_qty = d;
+				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
+				DEBUGN(d);
+			} else if(strncmp(read_buffer, "period", 6) == 0) {
+				work.UART_read_period = d;
+				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
+				DEBUGN(d);
+			} else if(strncmp(read_buffer, "debug", 5) == 0) {
+				bitWrite(flags, f_DebugFull, d);
+				DEBUGN(d);
+			} else if((read_buffer[0] | 0x20) == 'v') { // Vn=x, n={1..bms_qty}, n=0 - all
 				if(d) {
-					ATOMIC_BLOCK(ATOMIC_FORCEON) for(uint8_t i = 0; i < work.bms_qty; i++) {
-						bms[i] = d++;
-						if(bms_full && d > bms_full+1) d = bms_full+1;
+					uint8_t i = atoi(read_buffer + 1);
+					ATOMIC_BLOCK(ATOMIC_FORCEON) {
+						if(i == 0) {
+							for(; i < work.bms_qty; i++) {
+								bms[i] = d;
+								//if(bms_full && d > bms_full+1) d = bms_full+1;
+							}
+						} else if(--i < work.bms_qty) bms[i] = d;
 					}
 					if(!bitRead(flags, f_BMS_Ready)) {
 						i2c_set_slave_addr(bms_idx + 1);
 						bitSet(flags, f_BMS_Ready);
 					}
+					DEBUGN(d);
 				}
-			}
+			} else if((read_buffer[0] | 0x20) == 'q') { // Qn=x, n={1..bms_qty}
+				uint8_t i = atoi(read_buffer + 1);
+				if(--i < work.bms_qty) bms_Q[i] = d;
+				DEBUGN(d);
+			} else DEBUGN(F("Unknown!"));
 			break;
 		}
 	}
@@ -183,30 +201,28 @@ void BMS_read(void)
 
 void setup()
 {
-#if defined(__AVR_ATmega8__)
-	MCUCR |= (1<<SE); // Idle sleep enable
-#else // ATmega48/P, ATmega88/P, ATmega168/P, ATmega328/P
-	SMCR = (1<<SE); // Idle sleep enable
-#endif
 	wdt_enable(WDTO_2S); // Enable WDT
+	sleep_enable();
 	// Setup keys
 	KEYS_INIT;
 	// Setup classes
 #ifdef DEBUG_TO_SERIAL
 	Serial.begin(250000);
 #endif
-	DEBUG(F("BMS gate to Microart. v.")); DEBUGN(VERSION);
+	DEBUG(F("BMS gate to Microart, v")); DEBUGN(VERSION);
+	DEBUGN(F("Copyright by Vadim Kulakov, vad7@yahoo.com"));
 
-	if(eeprom_read_byte((uint8_t*)&EEPROM.work.bms_qty) == 255) { // init EEPROM
+	uint8_t b = eeprom_read_byte((uint8_t*)&EEPROM.work.bms_qty);
+	if(b == 0 || b > 32) { // init EEPROM
 		memset(&work, 0, sizeof(work));
 		work.bms_qty = BMS_QTY_MAX;
 		work.mode = 0;
-		work.BMS_read_period = 1000;
+		work.UART_read_period = 1000;
 		eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 	}
 	eeprom_read_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 	DEBUG(F("Cells: ")); DEBUGN(work.bms_qty);
-	DEBUG(F("UART read period, ms: ")); DEBUGN(work.BMS_read_period);
+	DEBUG(F("UART read period, ms: ")); DEBUGN(work.UART_read_period);
 	//
 	Wire.begin();
 	Wire.setClock(I2C_FREQ);
@@ -221,7 +237,7 @@ void loop()
 {
 	wdt_reset(); sleep_cpu();
 #ifdef DEBUG_TO_SERIAL
-	if(bms_idx_prev != bms_idx) {
+	if(bitRead(flags, f_DebugFull) && bms_idx_prev != bms_idx) {
 		DEBUG(F("I2C_R_"));
 		DEBUG(bms_idx_prev + 1);
 		DEBUG(F("->"));
@@ -237,27 +253,27 @@ void loop()
 	    *portOutputRegister(digitalPinToPort(LED_PD)) ^= digitalPinToBitMask(LED_PD);
 	}
 	// Read from UART
-	if(m - bms_reading > work.BMS_read_period) {
+	if(m - bms_reading > work.UART_read_period) {
 		bms_reading = m;
-		BMS_read();
+		UART_read();
 	}
 	// I2C slave receive
 	if(i2c_receive_idx && i2c_receive_idx > i2c_receive[0]) { // i2c write
-		DEBUG(F("I2C_W: "));
+		DEBUG2(F("I2C_W: "));
 		if(i2c_receive[0] >= sizeof(i2c_receive)) {
-			DEBUG(F("LEN ERROR!"));
+			DEBUG2(F("LEN ERROR!"));
 			i2c_receive_idx = 0;
 		} else {
 			uint8_t crc = 0;
 			for(uint8_t i = 0; i <= i2c_receive[0]; i++) { // +CRC
 				crc += i2c_receive[i];
-				DEBUGH(i2c_receive[i]);
-				DEBUG(" ");
+				DEBUG2(i2c_receive[i]);
+				DEBUG2(" ");
 			}
 			if(crc != 0) {
 				error = 50;
-				DEBUG("- CRC ERROR!");
-			} else if(i2c_receive[0] == 4) { // Broadcast I2CCom_JobWR
+				DEBUG2("- CRC ERROR!");
+			} else if(i2c_receive[1] == 4) { // Broadcast I2CCom_JobWR
 				bms_min = i2c_receive[2] + 200;
 				bms_full = i2c_receive[3] + 200;
 				map_mode = i2c_receive[4];
@@ -266,7 +282,7 @@ void loop()
 				memcpy(i2c_receive, i2c_receive + i2c_receive[0] + 1, i2c_receive_idx -= i2c_receive[0] + 1);
 			} else i2c_receive_idx = 0;
 		}
-		DEBUG("\n");
+		DEBUG2("\n");
 	}
 	//delay(MAIN_LOOP_PERIOD);
 }
