@@ -124,11 +124,11 @@ void I2C_Response() {
 	crc = 0;
 	i2c_write(7);									// size
 	i2c_write(5);									// op_code
-	i2c_write(bms[bms_idx] & 0xFF);					// V
-	i2c_write(bms[bms_idx] >> 8);					// V
-	i2c_write(bms_idx == 0 ? temp : BMS_NO_TEMP);	// temp
-	i2c_write(bms_Q[bms_idx]);						// Q%
-	i2c_write(0);									// err
+	i2c_write(bms[bms_idx] & 0xFF);					// Ucell(low), V, hundreds
+	i2c_write(bms[bms_idx] >> 8);					// Ucell(high), V, hundreds
+	i2c_write(bms_idx == 0 ? temp : BMS_NO_TEMP);	// temp + 50, 255 - none
+	i2c_write(bms_Q[bms_idx]);						// Q_Cell, %, I=(Q_Cell/100)*(Ucell/R), R=1
+	i2c_write(0);									// prev err
 	crc = 0 - crc;
 	i2c_write(crc);
 	if(++bms_idx == work.bms_qty) bms_idx = 0;
