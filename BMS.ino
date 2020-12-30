@@ -23,7 +23,7 @@ extern "C" {
 
 #define DEBUG_TO_SERIAL
 
-#define BMS_QTY						16
+#define BMS_QTY_MAX				16
 #define I2C_FREQ					2500
 //#define
 
@@ -48,6 +48,7 @@ extern "C" {
 #endif
 
 struct WORK {
+	uint8_t  bms_qty;
 	uint8_t  mode;
 	uint32_t BMS_read_period;		// ms
 } work;
@@ -62,7 +63,7 @@ enum {
 	f_BMS_Ready = 0
 };
 uint8_t  flags = 0;					// f_*
-uint16_t bms[BMS_QTY];				// V, hundreds
+uint16_t bms[BMS_QTY_MAX];				// V, hundreds
 uint8_t  bms_idx = 0;
 uint8_t  bms_idx_prev = 0;
 uint16_t bms_min = 0;				// V, hundreds
@@ -71,7 +72,7 @@ uint8_t  map_mode = 0;
 uint8_t  temp = BMS_NO_TEMP;		// C, +50
 uint8_t  crc;
 uint8_t  error = 0;
-char     read_buffer[32];
+char     read_buffer[64];
 uint8_t  i2c_receive[32];
 uint8_t  i2c_receive_idx = 0;
 uint8_t  read_idx = 0;
@@ -127,7 +128,7 @@ void I2C_Response() {
 	i2c_write(0);									// err
 	crc = 0 - crc;
 	i2c_write(crc);
-	if(++bms_idx == BMS_QTY) bms_idx = 0;
+	if(++bms_idx == work.bms_qty) bms_idx = 0;
 	i2c_set_slave_addr(bms_idx + 1);
 }
 
@@ -151,14 +152,21 @@ void BMS_read(void)
 			read_idx = 0;
 			uint16_t d;
 			DEBUG(F("UART: "));
-			if(read_buffer[0] == 'T') {
-				DEBUG(F("T "));
-				d = atoi(read_buffer + 1);
+			if(strncmp(read_buffer, "TEMP", 4) == 0) {
+				DEBUG(F("T="));
+				d = atoi(read_buffer + 4);
 				temp = d + 50;
+				DEBUGN(d);
+			} else if(strncmp(read_buffer, "PERIOD", 6) == 0) {
+					DEBUG(F("P="));
+					work.BMS_read_period = atoi(read_buffer + 6);
+					eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
+					DEBUGN(work.BMS_read_period);
 			} else {
 				d = atoi(read_buffer);
+				DEBUG(F("V="));	DEBUGN(d);
 				if(d) {
-					ATOMIC_BLOCK(ATOMIC_FORCEON) for(uint8_t i = 0; i < BMS_QTY; i++) {
+					ATOMIC_BLOCK(ATOMIC_FORCEON) for(uint8_t i = 0; i < work.bms_qty; i++) {
 						bms[i] = d++;
 						if(bms_full && d > bms_full+1) d = bms_full+1;
 					}
@@ -168,7 +176,6 @@ void BMS_read(void)
 					}
 				}
 			}
-			DEBUGN(d);
 			break;
 		}
 	}
@@ -190,15 +197,16 @@ void setup()
 #endif
 	DEBUG(F("BMS gate to Microart. v.")); DEBUGN(VERSION);
 
-	if(eeprom_read_byte((uint8_t*)&EEPROM.work.mode) == 255) { // init EEPROM
+	if(eeprom_read_byte((uint8_t*)&EEPROM.work.bms_qty) == 255) { // init EEPROM
 		memset(&work, 0, sizeof(work));
+		work.bms_qty = BMS_QTY_MAX;
 		work.mode = 0;
 		work.BMS_read_period = 1000;
 		eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 	}
 	eeprom_read_block(&work, &EEPROM.work, sizeof(EEPROM.work));
-	DEBUG(F("Read UART period, ms: ")); DEBUGN(work.BMS_read_period);
-
+	DEBUG(F("Cells: ")); DEBUGN(work.bms_qty);
+	DEBUG(F("UART read period, ms: ")); DEBUGN(work.BMS_read_period);
 	//
 	Wire.begin();
 	Wire.setClock(I2C_FREQ);
@@ -249,7 +257,7 @@ void loop()
 			if(crc != 0) {
 				error = 50;
 				DEBUG("- CRC ERROR!");
-			} else if(i2c_receive[0] == 4) { // I2CCom_JobWR
+			} else if(i2c_receive[0] == 4) { // Broadcast I2CCom_JobWR
 				bms_min = i2c_receive[2] + 200;
 				bms_full = i2c_receive[3] + 200;
 				map_mode = i2c_receive[4];
