@@ -167,24 +167,75 @@ void DebugSerial_read(void)
 			if(p == NULL) break;
 			*p = '\0';
 			DEBUG(F("CFG: ")); DEBUG(debug_read_buffer); DEBUG('=');
-			uint16_t d = atoi(p + 1);
+			uint8_t i;
+			uint16_t d = strtol(p + 1, NULL, 0);
 			if(strncmp(debug_read_buffer, "temp", 4) == 0) {
 				temp = d + 50;
-				DEBUGN(d);
+				DEBUG(d);
 			} else if(strncmp(debug_read_buffer, "cells", 5) == 0) {
 				work.bms_qty = d;
 				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
-				DEBUGN(d);
+				DEBUG(d);
 			} else if(strncmp(debug_read_buffer, "period", 6) == 0) {
 				work.UART_read_period = d;
 				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
-				DEBUGN(d);
+				DEBUG(d);
 			} else if(strncmp(debug_read_buffer, "debug", 5) == 0) {
 				bitWrite(flags, f_DebugFull, d);
-				DEBUGN(d);
+				DEBUG(d);
+			} else if(strncmp(debug_read_buffer, "I2C_WRITE_BMS", 13) == 0) { // I2C_WRITE_BMSn,a=x -> n - BMS num (1..max), a - address, x - byte
+				p = strchr(debug_read_buffer, ',');
+				if(p == NULL) break;
+				*p = '\0';
+				uint8_t i = strtol(debug_read_buffer + 13, NULL, 0);
+				if(i > work.bms_qty) break;
+				uint16_t addr = strtol(p + 1, NULL, 0);
+				DEBUG2(i); DEBUG2(','); DEBUG2(addr); DEBUG2(','); DEBUG2(d); DEBUG2(": ");
+				crc = 0;
+				Wire.beginTransmission(i);
+				i2c_write(5);									// size
+				i2c_write(1);									// op_code
+				i2c_write(addr & 0xFF);							// Address_low
+				i2c_write(addr >> 8);							// Address_high
+				i2c_write(d);									// value
+				crc = 0 - crc;
+				i2c_write(crc);
+				i = Wire.endTransmission();
+				if(i == 0) DEBUG(F("OK")); else goto xSendErr;
+			} else if(strncmp(debug_read_buffer, "I2C_READ_BMS", 12) == 0) { // I2C_READ_BMSn=a -> n - BMS num (1..max), a - address
+				i = strtol(debug_read_buffer + 13, NULL, 0);
+				if(i > work.bms_qty) break;
+				DEBUG2(i); DEBUG2(','); DEBUG2(d); DEBUG2(": ");
+				crc = 0;
+				Wire.beginTransmission(i);
+				i2c_write(5);									// size
+				i2c_write(2);									// op_code
+				i2c_write(d & 0xFF);							// Address_low
+				i2c_write(d >> 8);								// Address_high
+				i2c_write(1);									// len
+				crc = 0 - crc;
+				i2c_write(crc);
+				d = Wire.endTransmission();
+				if(d) {
+					i = d;
+					DEBUG(F("REQ "));
+xSendErr:
+					DEBUG(F("ERROR "));
+					if(i == 1) DEBUG(F("LEN"));
+					else if(i == 2) DEBUG(F("ADDR NACK"));
+					else if(i == 3) DEBUG(F("DATA NACK"));
+					else if(i == 4) DEBUG(F("SEND"));
+				}
+				delay(50);
+				d = Wire.requestFrom(i, (uint8_t) 6);
+				if(d == 6) DEBUG(F("OK"));
+				else {
+					DEBUG(F("ERROR - LEN="));
+					DEBUG(d);
+				}
 			} else if((debug_read_buffer[0] | 0x20) == 'v') { // Vn=x, n={1..bms_qty}, n=0 - all
 				if(d) {
-					uint8_t i = atoi(debug_read_buffer + 1);
+					i = strtol(debug_read_buffer + 1, NULL, 0);
 					ATOMIC_BLOCK(ATOMIC_FORCEON) {
 						if(i == 0) {
 							for(; i < work.bms_qty; i++) {
@@ -197,13 +248,14 @@ void DebugSerial_read(void)
 						i2c_set_slave_addr(bms_idx + 1);
 						bitSet(flags, f_BMS_Ready);
 					}
-					DEBUGN(d);
+					DEBUG(d);
 				}
 			} else if((debug_read_buffer[0] | 0x20) == 'q') { // Qn=x, n={1..bms_qty}
-				uint8_t i = atoi(debug_read_buffer + 1);
+				i = strtol(debug_read_buffer + 1, NULL, 0);
 				if(--i < work.bms_qty) bms_Q[i] = d;
-				DEBUGN(d);
-			} else DEBUGN(F("Unknown!"));
+				DEBUG(d);
+			} else DEBUG(F("Unknown!"));
+			DEBUG('\n');
 			break;
 		}
 	}
