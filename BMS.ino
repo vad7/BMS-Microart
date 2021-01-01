@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020 by Vadim Kulakov vad7@yahoo.com, vad711
+ * Copyright (c) 2021 by Vadim Kulakov vad7@yahoo.com, vad711
   *
  * This file is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public
@@ -13,7 +13,7 @@
  */
 #define VERSION F("1.00")
 #define DEBUG_TO_SERIAL				9600
-#define DEBUG_TO_SERIAL_CMD
+#define DebugSerial 				Serial  // if omitted - using second serial for debug
 
 #include "Arduino.h"
 #include <avr/wdt.h>
@@ -23,10 +23,10 @@ extern "C" {
 	#include "utility/twi.h"
 }
 #ifdef DEBUG_TO_SERIAL
+#ifndef DebugSerial
 #include <SoftwareSerial.h>
 SoftwareSerial DebugSerial(2, 3); // RX, TX
-#else
-#define DebugSerial Serial
+#endif
 #endif
 
 #define LED_PD						LED_BUILTIN
@@ -339,7 +339,7 @@ void setup()
 #ifdef DEBUG_TO_SERIAL
 	DebugSerial.begin(DEBUG_TO_SERIAL);
 	DEBUG(F("\nBMS gate to Microart, v")); DEBUGN(VERSION);
-	DEBUGN(F("Copyright by Vadim Kulakov, vad7@yahoo.com"));
+	DEBUGN(F("Copyright by Vadim Kulakov (c) 2021, vad7@yahoo.com"));
 #endif
 	BMS_SERIAL.begin(BMS_SERIAL_RATE);
 	uint8_t b = eeprom_read_byte((uint8_t*)&EEPROM.work.bms_qty);
