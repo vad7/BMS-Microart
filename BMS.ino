@@ -12,8 +12,6 @@
  * GNU General Public License for more details.
  */
 #define VERSION F("1.00")
-#define DEBUG_TO_SERIAL				9600
-#define DebugSerial 				Serial  // if omitted - using second serial for debug
 
 #include "Arduino.h"
 #include <avr/wdt.h>
@@ -22,21 +20,27 @@
 extern "C" {
 	#include "utility/twi.h"
 }
-#ifdef DEBUG_TO_SERIAL
-#ifndef DebugSerial
-#include <SoftwareSerial.h>
-SoftwareSerial DebugSerial(2, 3); // RX, TX
-#endif
-#endif
 
 #define LED_PD						LED_BUILTIN
 #define I2C_FREQ					2500
 #define BMS_QTY_MAX					32
-#define BMS_SERIAL 					Serial
+#define BMS_SERIAL 					Serial	// if not used - omit
 #define BMS_SERIAL_RATE				9600
 #define MAIN_LOOP_PERIOD			1		// msec
 #define BMS_NO_TEMP					255
 const uint8_t BMS_Cmd_Request[] PROGMEM = { 0x55, 0xAA, 0x01, 0xFF, 0x00, 0x00, 0xFF };
+
+#define DEBUG_TO_SERIAL				9600
+#define DebugSerial 				Serial  // when active - UART BMS does not used
+
+#ifdef DEBUG_TO_SERIAL
+#ifndef DebugSerial
+#include <SoftwareSerial.h>
+SoftwareSerial DebugSerial(2, 3); // RX, TX
+#else
+#undef BMS_SERIAL
+#endif
+#endif
 
 #ifdef DEBUG_TO_SERIAL
 #define DEBUG(s) DebugSerial.print(s)
@@ -150,7 +154,6 @@ void I2C_Receive(int howMany) {
 #ifdef DEBUG_TO_SERIAL
 void Show_I2C_error(uint8_t err)
 {
-	if(err == 0) return;
 	DEBUG(F(" ERROR "));
 	if(err == 1) DEBUG(F("LEN"));
 	else if(err == 2) DEBUG(F("ADDR NACK"));
@@ -202,10 +205,10 @@ void DebugSerial_read(void)
 					i2c_write(d);									// value
 					crc = 0 - crc;
 					i2c_write(crc);
-					i = Wire.endTransmission();
-					if(i) {
+					uint8_t err = Wire.endTransmission();
+					if(err) {
 						DEBUG(F("BMS-")); DEBUG(i);
-						Show_I2C_error(i);
+						Show_I2C_error(err);
 						break;
 					}
 					delay(50);
@@ -225,10 +228,10 @@ void DebugSerial_read(void)
 					i2c_write(1);									// len
 					crc = 0 - crc;
 					i2c_write(crc);
-					d = Wire.endTransmission();
-					if(d) {
-						DEBUG(F("REQ "));
-						Show_I2C_error(d);
+					uint8_t err = Wire.endTransmission();
+					if(err) {
+						DEBUG(F("REQ"));
+						Show_I2C_error(err);
 						break;
 					}
 					delay(50);
@@ -287,6 +290,7 @@ void DebugSerial_read(void)
 // JK-DZ11-B2A24S active balancer
 void BMS_Serial_read(void)
 {
+#ifdef BMS_SERIAL
 	while(BMS_SERIAL.available()) {
 		int16_t r = BMS_SERIAL.read();
 		if(r == -1) break;
@@ -330,18 +334,21 @@ void BMS_Serial_read(void)
 			break;
 		}
 	}
+#endif
 }
 
 void setup()
 {
 	wdt_enable(WDTO_2S); // Enable WDT
 	sleep_enable();
+#ifdef BMS_SERIAL
+	BMS_SERIAL.begin(BMS_SERIAL_RATE);
+#endif
 #ifdef DEBUG_TO_SERIAL
 	DebugSerial.begin(DEBUG_TO_SERIAL);
 	DEBUG(F("\nBMS gate to Microart, v")); DEBUGN(VERSION);
 	DEBUGN(F("Copyright by Vadim Kulakov (c) 2021, vad7@yahoo.com"));
 #endif
-	BMS_SERIAL.begin(BMS_SERIAL_RATE);
 	uint8_t b = eeprom_read_byte((uint8_t*)&EEPROM.work.bms_qty);
 	if(b == 0 || b > 32) { // init EEPROM
 		memset(&work, 0, sizeof(work));
@@ -396,8 +403,10 @@ void loop()
 	BMS_Serial_read();
 	if(m - bms_reading > work.UART_read_period) {
 		bms_reading = m;
+#ifdef BMS_SERIAL
 		read_idx = 0;	// reset read index
 		for(uint8_t i = 0; i < sizeof(BMS_Cmd_Request); i++) BMS_SERIAL.write(pgm_read_byte(BMS_Cmd_Request[i]));
+#endif
 #ifdef DEBUG_TO_SERIAL
 		DebugSerial_read();
 #endif
