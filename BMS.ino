@@ -29,19 +29,14 @@ SoftwareSerial DebugSerial(2, 3); // RX, TX
 #define DebugSerial Serial
 #endif
 
+#define LED_PD						LED_BUILTIN
 #define I2C_FREQ					2500
 #define BMS_QTY_MAX					32
 #define BMS_SERIAL 					Serial
 #define BMS_SERIAL_RATE				9600
-const uint8_t BMS_Cmd_Request[] PROGMEM = { 0x55, 0xAA, 0x01, 0xFF, 0x00, 0x00, 0xFF };
-#define KEY1_PD						4
-#define LED_PD						LED_BUILTIN
-#define KEYS_INIT					PORTC |= (1<<PC2) // Pull-up, to GND: LEFT - 10kOm, OK - 30kOm, RIGHT - 56kOm
-#define KEY_TWICE_PRESS_TIMEOUT		3		// sec
-#define KEY_FAST_PRESSING_TIME		1		// sec
-#define KEY_RELEASE_TIMEOUT			200		// *100 msec
 #define MAIN_LOOP_PERIOD			1		// msec
 #define BMS_NO_TEMP					255
+const uint8_t BMS_Cmd_Request[] PROGMEM = { 0x55, 0xAA, 0x01, 0xFF, 0x00, 0x00, 0xFF };
 
 #ifdef DEBUG_TO_SERIAL
 #define DEBUG(s) DebugSerial.print(s)
@@ -117,13 +112,6 @@ void FlashLED(uint8_t num, uint8_t ton, uint8_t toff) {
 	}
 }
 
-void WaitKeysRelease(void)
-{
-	uint8_t tm = KEY_RELEASE_TIMEOUT;
-	while(digitalRead(KEY1_PD) && --tm) delay(100);
-	delay(100);
-}
-
 void i2c_set_slave_addr(uint8_t addr)
 {
 	TWAR = (addr << 1) | 1; // +broardcast addr(0)
@@ -163,7 +151,7 @@ void I2C_Receive(int howMany) {
 void Show_I2C_error(uint8_t err)
 {
 	if(err == 0) return;
-	DEBUG(F("ERROR "));
+	DEBUG(F(" ERROR "));
 	if(err == 1) DEBUG(F("LEN"));
 	else if(err == 2) DEBUG(F("ADDR NACK"));
 	else if(err == 3) DEBUG(F("DATA NACK"));
@@ -199,50 +187,73 @@ void DebugSerial_read(void)
 			} else if(strncmp_P(debug_read_buffer, dbg_debug, sizeof(dbg_debug)-1) == 0) {
 				bitWrite(flags, f_DebugFull, d);
 				DEBUG(d);
-			} else if(strncmp_P(debug_read_buffer, dbg_I2C_WRITE_BMS, sizeof(dbg_I2C_WRITE_BMS)-1) == 0) { // I2C_WRITE_BMSn,a=x -> n - BMS num (1..max), a - address, x - byte
-				p = strchr(debug_read_buffer, ',');
-				if(p == NULL) break;
-				*p = '\0';
-				uint8_t i = strtol(debug_read_buffer + sizeof(dbg_I2C_WRITE_BMS)-1, NULL, 0);
-				if(i > work.bms_qty) break;
-				uint16_t addr = strtol(p + 1, NULL, 0);
-				DEBUG2(i); DEBUG2(','); DEBUG2(addr); DEBUG2(','); DEBUG2(d); DEBUG2(": ");
-				crc = 0;
-				Wire.beginTransmission(i);
-				i2c_write(5);									// size
-				i2c_write(1);									// op_code
-				i2c_write(addr & 0xFF);							// Address_low
-				i2c_write(addr >> 8);							// Address_high
-				i2c_write(d);									// value
-				crc = 0 - crc;
-				i2c_write(crc);
-				i = Wire.endTransmission();
-				if(i == 0) DEBUG(F("OK")); else Show_I2C_error(i);
-			} else if(strncmp_P(debug_read_buffer, dbg_I2C_READ_BMS, sizeof(dbg_I2C_READ_BMS)-1) == 0) { // I2C_READ_BMSn=a -> n - BMS num (1..max), a - address
-				uint8_t i = strtol(debug_read_buffer + sizeof(dbg_I2C_READ_BMS)-1, NULL, 0);
-				if(i > work.bms_qty) break;
-				DEBUG2(i); DEBUG2(','); DEBUG2(d); DEBUG2(": ");
-				crc = 0;
-				Wire.beginTransmission(i);
-				i2c_write(5);									// size
-				i2c_write(2);									// op_code
-				i2c_write(d & 0xFF);							// Address_low
-				i2c_write(d >> 8);								// Address_high
-				i2c_write(1);									// len
-				crc = 0 - crc;
-				i2c_write(crc);
-				d = Wire.endTransmission();
-				if(d) {
-					DEBUG(F("REQ "));
-					Show_I2C_error(d);
-				} else {
+			} else if(strncmp_P(debug_read_buffer, dbg_I2C_WRITE_BMS, sizeof(dbg_I2C_WRITE_BMS)-1) == 0) { // I2C_WRITE_BMSa=x -> a - address, x - byte
+				uint8_t addr = strtol(debug_read_buffer + sizeof(dbg_I2C_WRITE_BMS)-1, NULL, 0);
+				DEBUG2(addr); DEBUG2(',');
+				DEBUG(d); DEBUG(' ');
+				uint8_t i = 1;
+				for(; i <= work.bms_qty; i++) {
+					crc = 0;
+					Wire.beginTransmission(i);
+					i2c_write(5);									// size
+					i2c_write(1);									// op_code
+					i2c_write(addr & 0xFF);							// Address_low
+					i2c_write(addr >> 8);							// Address_high
+					i2c_write(d);									// value
+					crc = 0 - crc;
+					i2c_write(crc);
+					i = Wire.endTransmission();
+					if(i) {
+						DEBUG(F("BMS-")); DEBUG(i);
+						Show_I2C_error(i);
+						break;
+					}
+					delay(50);
+				}
+				if(i > work.bms_qty) DEBUG(F("OK"));
+			} else if(strncmp_P(debug_read_buffer, dbg_I2C_READ_BMS, sizeof(dbg_I2C_READ_BMS)-1) == 0) { // I2C_READ_BMS=a -> a - address
+				DEBUG(d); DEBUGN(":");
+				uint8_t i = 1;
+				for(; i <= work.bms_qty; i++) {
+					DEBUG(F("BMS-")); DEBUG(i); DEBUG(": ");
+					crc = 0;
+					Wire.beginTransmission(i);
+					i2c_write(5);									// size
+					i2c_write(2);									// op_code
+					i2c_write(d & 0xFF);							// Address_low
+					i2c_write(d >> 8);								// Address_high
+					i2c_write(1);									// len
+					crc = 0 - crc;
+					i2c_write(crc);
+					d = Wire.endTransmission();
+					if(d) {
+						DEBUG(F("REQ "));
+						Show_I2C_error(d);
+						break;
+					}
 					delay(50);
 					d = Wire.requestFrom(i, (uint8_t) 6);
-					if(d == 6) DEBUG(F("OK"));
-					else {
-						DEBUG(F("ERROR - LEN="));
+					if(d != 6) {
+						DEBUG(F("REQ2 ERROR LEN="));
 						DEBUG(d);
+						break;
 					}
+					uint8_t j = 0;
+					crc = 0;
+					while(Wire.available() && j < sizeof(debug_read_buffer)) {
+						uint8_t b = Wire.read();
+						crc += b;
+						debug_read_buffer[j++] = b;
+						DEBUG2(b); DEBUG2(' ');
+					}
+					if(crc != 0) {
+						DEBUG("- CRC ERROR!");
+					} else {
+						DEBUG2(": ");
+						DEBUG(debug_read_buffer[4]);
+					}
+					DEBUGN();
+					delay(50);
 				}
 			} else if((debug_read_buffer[0] | 0x20) == 'v') { // Vn=x, n={1..bms_qty}, n=0 - all
 				if(d) {
@@ -325,16 +336,12 @@ void setup()
 {
 	wdt_enable(WDTO_2S); // Enable WDT
 	sleep_enable();
-	// Setup keys
-	KEYS_INIT;
-	// Setup classes
 #ifdef DEBUG_TO_SERIAL
 	DebugSerial.begin(DEBUG_TO_SERIAL);
 	DEBUG(F("\nBMS gate to Microart, v")); DEBUGN(VERSION);
 	DEBUGN(F("Copyright by Vadim Kulakov, vad7@yahoo.com"));
 #endif
 	BMS_SERIAL.begin(BMS_SERIAL_RATE);
-
 	uint8_t b = eeprom_read_byte((uint8_t*)&EEPROM.work.bms_qty);
 	if(b == 0 || b > 32) { // init EEPROM
 		memset(&work, 0, sizeof(work));
@@ -352,8 +359,9 @@ void setup()
 	DEBUG((const __FlashStringHelper*)dbg_period); DEBUGN(F("=x"));
 	DEBUG((const __FlashStringHelper*)dbg_cells); DEBUGN(F("=x"));
 	DEBUG((const __FlashStringHelper*)dbg_temp); DEBUGN(F("=x"));
-	DEBUG((const __FlashStringHelper*)dbg_I2C_READ_BMS); DEBUGN(F("n=addr"));
-	DEBUG((const __FlashStringHelper*)dbg_I2C_WRITE_BMS); DEBUGN(F("n,addr=x"));
+	DEBUGN(F("Vn=x\nQn=x"));
+	DEBUG((const __FlashStringHelper*)dbg_I2C_READ_BMS); DEBUGN(F("=addr"));
+	DEBUG((const __FlashStringHelper*)dbg_I2C_WRITE_BMS); DEBUGN(F("addr=x"));
 #endif
 	//
 	Wire.begin();
@@ -421,7 +429,7 @@ void loop()
 		}
 		DEBUG2("\n");
 	}
-	//delay(MAIN_LOOP_PERIOD);
+	delay(MAIN_LOOP_PERIOD);
 }
 
 
