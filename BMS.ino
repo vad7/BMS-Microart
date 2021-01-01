@@ -330,7 +330,7 @@ void setup()
 	// Setup classes
 #ifdef DEBUG_TO_SERIAL
 	DebugSerial.begin(DEBUG_TO_SERIAL);
-	DEBUG(F("BMS gate to Microart, v")); DEBUGN(VERSION);
+	DEBUG(F("\nBMS gate to Microart, v")); DEBUGN(VERSION);
 	DEBUGN(F("Copyright by Vadim Kulakov, vad7@yahoo.com"));
 #endif
 	BMS_SERIAL.begin(BMS_SERIAL_RATE);
@@ -346,7 +346,7 @@ void setup()
 	eeprom_read_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 #ifdef DEBUG_TO_SERIAL
 	DEBUG(F("Cells: ")); DEBUGN(work.bms_qty);
-	DEBUG(F("UART read period, ms: ")); DEBUGN(work.UART_read_period);
+	DEBUG(F("BMS read period, ms: ")); DEBUGN(work.UART_read_period);
 	DEBUGN(F("Commands:"));
 	DEBUG((const __FlashStringHelper*)dbg_debug); DEBUGN(F("=x"));
 	DEBUG((const __FlashStringHelper*)dbg_period); DEBUGN(F("=x"));
