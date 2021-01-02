@@ -6,3 +6,4 @@
 /Release/
 /spec.d
 *.asm_
+*.doc#
