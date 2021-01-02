@@ -427,7 +427,12 @@ void setup()
 #endif
 	//
 	Wire.begin();
+#if I2C_FREQ < 30500
+	TWSR |= (1<<TWPS1) | (1<<TWPS0); // Prescaler = 64
+	TWBR = ((F_CPU / I2C_FREQ) - 16) / (2 * 64);
+#else
 	Wire.setClock(I2C_FREQ);
+#endif
 	Wire.onRequest(I2C_Response); // register event
 	Wire.onReceive(I2C_Receive); // register event
 	i2c_set_slave_addr(0);
