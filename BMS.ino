@@ -178,7 +178,7 @@ bool Wait_Microart_BMS_Response(void)
 			DEBUG(F("Broadcast: "));
 			Show_I2C_error(err);
 			DEBUGN();
-			return false;
+			//return false;
 		}
 		delay(20);
 		for(uint8_t bms = 1; bms <= work.bms_qty; bms++) {
@@ -186,7 +186,7 @@ bool Wait_Microart_BMS_Response(void)
 			if(err != 8) {
 				DEBUG(F("ERROR REQ BMS-")); DEBUG(bms);
 				DEBUG(F(". "));	DEBUGN(err);
-				delay(50);
+				delay(40);
 				continue;
 			}
 			uint8_t j = 0;
