@@ -30,9 +30,9 @@ extern "C" {
 #define BMS_NO_TEMP					255
 const uint8_t BMS_Cmd_Request[] PROGMEM = { 0x55, 0xAA, 0x01, 0xFF, 0x00, 0x00, 0xFF };
 
-#define MICROART_BMS_READWRITE				// Include code for Microart BMS
+//#define MICROART_BMS_READWRITE				// Include code for Microart BMS
 #define DEBUG_TO_SERIAL				9600
-#define DebugSerial 				Serial  // when active - UART BMS does not used
+//#define DebugSerial 				Serial  // when active - UART BMS does not used
 
 #ifdef DEBUG_TO_SERIAL
 #ifndef DebugSerial
@@ -153,6 +153,7 @@ void I2C_Receive(int howMany) {
 }
 
 #ifdef DEBUG_TO_SERIAL
+#ifdef MICROART_BMS_READWRITE
 void Show_I2C_error(uint8_t err)
 {
 	DEBUG(F(" ERROR "));
@@ -163,7 +164,6 @@ void Show_I2C_error(uint8_t err)
 	else DEBUG(err);
 }
 
-#ifdef MICROART_BMS_READWRITE
 bool Wait_Microart_BMS_Response(void)
 {
 	const uint8_t Microart_BMS_I2CCom_JobWR[] PROGMEM = { 5, 4, 132, 136, 19, 216 };
@@ -376,7 +376,8 @@ void BMS_Serial_read(void)
 			}
 #endif
 			for(uint8_t i = 0; i < work.bms_qty; i++) {
-				bms[i] = (read_buffer[23 + i] + 5) / 10; // 0.001 -> 0.01
+				uint16_t v = (read_buffer[23 + i] + 5) / 10; // 0.001 -> 0.01
+				ATOMIC_BLOCK(ATOMIC_FORCEON) bms[i] = v;
 			}
 			temp = read_buffer[71] + 50;
 			memset(bms_Q, 0, sizeof(bms_Q));
@@ -396,6 +397,7 @@ void setup()
 {
 	wdt_enable(WDTO_2S); // Enable WDT
 	sleep_enable();
+	PRR = (1<<PRSPI) | (1<<PRADC); // Power off: SPI, ADC
 #ifdef BMS_SERIAL
 	BMS_SERIAL.begin(BMS_SERIAL_RATE);
 #endif
