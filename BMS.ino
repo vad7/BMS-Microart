@@ -424,8 +424,10 @@ void setup()
 	DEBUG((const __FlashStringHelper*)dbg_cells); DEBUGN(F("=x"));
 	DEBUG((const __FlashStringHelper*)dbg_temp); DEBUGN(F("=x"));
 	DEBUGN(F("Vn=x\nQn=x"));
+#ifdef MICROART_BMS_READWRITE
 	DEBUG((const __FlashStringHelper*)dbg_I2C_READ_BMS); DEBUGN(F("=addr"));
 	DEBUG((const __FlashStringHelper*)dbg_I2C_WRITE_BMS); DEBUGN(F("addr=x"));
+#endif
 #endif
 	//
 	Wire.begin();
