@@ -54,6 +54,7 @@ const char dbg_temp[] PROGMEM = "temp";
 const char dbg_cells[] PROGMEM = "cells";
 const char dbg_period[] PROGMEM = "period";
 const char dbg_debug[] PROGMEM = "debug";
+const char dbg_round[] PROGMEM = "round";
 const char dbg_I2C_WRITE_BMS[] PROGMEM = "I2C_WRITE_BMS";
 const char dbg_I2C_READ_BMS[] PROGMEM = "I2C_READ_BMS";
 #else
@@ -63,10 +64,17 @@ const char dbg_I2C_READ_BMS[] PROGMEM = "I2C_READ_BMS";
 #define DEBUG2N(s)
 #endif
 
+enum {
+	round_true = 0,
+	round_cut,
+	round_up
+};
+
 struct WORK {
 	uint8_t  bms_qty;
 	uint8_t  mode;
 	uint32_t UART_read_period;		// ms
+	uint8_t  round;					// round_*
 } work;
 
 struct _EEPROM {
@@ -238,6 +246,10 @@ void DebugSerial_read(void)
 				work.UART_read_period = d;
 				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 				DEBUG(d);
+			} else if(strncmp_P(debug_read_buffer, dbg_round, sizeof(dbg_round)-1) == 0) {
+				work.round = d;
+				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
+				DEBUG(d);
 			} else if(strncmp_P(debug_read_buffer, dbg_debug, sizeof(dbg_debug)-1) == 0) {
 				bitWrite(flags, f_DebugFull, d);
 				DEBUG(d);
@@ -376,7 +388,10 @@ void BMS_Serial_read(void)
 			}
 #endif
 			for(uint8_t i = 0; i < work.bms_qty; i++) {
-				uint16_t v = (read_buffer[23 + i] + 5) / 10; // 0.001 -> 0.01
+				uint16_t v = *(uint16_t*)(read_buffer + 23 + i*2);
+				if(work.round == round_true) v += 5;
+				else if(work.round == round_up) v += 9;
+				v /= 10; // 0.001 -> 0.01
 				ATOMIC_BLOCK(ATOMIC_FORCEON) bms[i] = v;
 			}
 			temp = read_buffer[71] + 50;
@@ -412,6 +427,7 @@ void setup()
 		work.bms_qty = 16;
 		work.mode = 0;
 		work.UART_read_period = 1000;
+		work.round = round_true;
 		eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 	}
 	eeprom_read_block(&work, &EEPROM.work, sizeof(EEPROM.work));
@@ -422,6 +438,7 @@ void setup()
 	DEBUG((const __FlashStringHelper*)dbg_debug); DEBUGN(F("=x"));
 	DEBUG((const __FlashStringHelper*)dbg_period); DEBUGN(F("=x"));
 	DEBUG((const __FlashStringHelper*)dbg_cells); DEBUGN(F("=x"));
+	DEBUG((const __FlashStringHelper*)dbg_period); DEBUGN(F("=0-5/4, 1-cut, 2-up"));
 	DEBUG((const __FlashStringHelper*)dbg_temp); DEBUGN(F("=x"));
 	DEBUGN(F("Vn=x\nQn=x"));
 #ifdef MICROART_BMS_READWRITE
