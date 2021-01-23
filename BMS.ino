@@ -434,13 +434,14 @@ void setup()
 #ifdef DEBUG_TO_SERIAL
 	DEBUG(F("Cells: ")); DEBUGN(work.bms_qty);
 	DEBUG(F("BMS read period, ms: ")); DEBUGN(work.UART_read_period);
-	DEBUGN(F("Commands:"));
-	DEBUG((const __FlashStringHelper*)dbg_debug); DEBUGN(F("=x"));
+	DEBUG(F("BMS voltage round: ")); DEBUGN(work.round == round_true ? "5/4" : work.round == round_cut ? "cut" : work.round == round_up ? "up" : "?");
+	DEBUGN(F("\nCommands:"));
+	DEBUG((const __FlashStringHelper*)dbg_debug); DEBUGN(F("=1,0"));
 	DEBUG((const __FlashStringHelper*)dbg_period); DEBUGN(F("=x"));
 	DEBUG((const __FlashStringHelper*)dbg_cells); DEBUGN(F("=x"));
 	DEBUG((const __FlashStringHelper*)dbg_period); DEBUGN(F("=0-5/4, 1-cut, 2-up"));
 	DEBUG((const __FlashStringHelper*)dbg_temp); DEBUGN(F("=x"));
-	DEBUGN(F("Vn=x\nQn=x"));
+	DEBUGN(F("Vn=x (All: n = 0) \nQn=x"));
 #ifdef MICROART_BMS_READWRITE
 	DEBUG((const __FlashStringHelper*)dbg_I2C_READ_BMS); DEBUGN(F("=addr"));
 	DEBUG((const __FlashStringHelper*)dbg_I2C_WRITE_BMS); DEBUGN(F("addr=x"));
