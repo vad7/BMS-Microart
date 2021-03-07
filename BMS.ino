@@ -37,7 +37,7 @@ const uint8_t BMS_Cmd_Request[] PROGMEM = { 0x55, 0xAA, 0x01, 0xFF, 0x00, 0x00, 
 #ifdef DEBUG_TO_SERIAL
 #ifndef DebugSerial
 #include <SoftwareSerial.h>
-SoftwareSerial DebugSerial(2, 3); // RX, TX
+SoftwareSerial DebugSerial(3, 2); // RX, TX
 #else
 #undef BMS_SERIAL
 #endif
