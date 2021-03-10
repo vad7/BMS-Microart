@@ -10,7 +10,17 @@
  * but WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.See the
  * GNU General Public License for more details.
- */
+
+RJ-11 6P6C:
+1 - BMS_DISCHARGE / I2C_SLC_buf_iso (brown-white)
+2 - GND								(brown)
+3 - TEPM							(blue-white)
+4 - BMS_CHARGE / I2C_SDA_buf_iso�	(blue)
+5 - +5v_iso							(orange)
+6 - not connected on back side, on front side: +12V if enabled (orange-white)
+
+*/
+
 #define VERSION F("1.00")
 
 #include "Arduino.h"
