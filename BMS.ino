@@ -68,6 +68,8 @@ const char dbg_period[] PROGMEM = "period";
 const char dbg_debug[] PROGMEM = "debug";
 const char dbg_round[] PROGMEM = "round";
 const char dbg_correct[] PROGMEM = "correct";
+const char dbg_vmax[] PROGMEM = "Vmax";
+const char dbg_vmaxhyst[] PROGMEM = "Vmaxhyst";
 const char dbg_seterr[] PROGMEM = "ERR";
 const char dbg_I2C_WRITE_BMS[] PROGMEM = "I2C_WRITE_BMS";
 const char dbg_I2C_READ_BMS[] PROGMEM = "I2C_READ_BMS";
@@ -90,6 +92,8 @@ struct WORK {
 	uint32_t UART_read_period;		// ms
 	uint8_t  round;					// round_*
 	int16_t  V_correct;				// mV
+	int16_t  Vmax;					// mV
+	int16_t  Vmaxhyst;				// mV
 } work;
 
 struct _EEPROM {
@@ -264,20 +268,28 @@ void DebugSerial_read(void)
 			} else if(strncmp_P(debug_read_buffer, dbg_cells, sizeof(dbg_cells)-1) == 0) {
 				if(d < 2) d = 2;
 				work.bms_qty = d;
-				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 				DEBUG(d);
+				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 			} else if(strncmp_P(debug_read_buffer, dbg_period, sizeof(dbg_period)-1) == 0) {
 				work.UART_read_period = d;
-				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 				DEBUG(d);
+				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 			} else if(strncmp_P(debug_read_buffer, dbg_round, sizeof(dbg_round)-1) == 0) {
 				work.round = d;
-				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 				DEBUGN(work.round == round_true ? "5/4" : work.round == round_cut ? "cut" : work.round == round_up ? "up" : "?");
+				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 			} else if(strncmp_P(debug_read_buffer, dbg_correct, sizeof(dbg_correct)-1) == 0) {
 				work.V_correct = d;
+				DEBUG(d);
 				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
-				DEBUG(work.V_correct);
+			} else if(strncmp_P(debug_read_buffer, dbg_vmaxhyst, sizeof(dbg_vmaxhyst)-1) == 0) {
+				work.Vmaxhyst = d;
+				DEBUG(d);
+				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
+			} else if(strncmp_P(debug_read_buffer, dbg_vmax, sizeof(dbg_vmax)-1) == 0) {
+				work.Vmax = d;
+				DEBUG(d);
+				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 			} else if(strncmp_P(debug_read_buffer, dbg_debug, sizeof(dbg_debug)-1) == 0) {
 				debug = d;
 				DEBUG(d);
@@ -463,6 +475,9 @@ void BMS_Serial_read(void)
 					v += work.V_correct;
 					if(v < 0) v = 0;
 				}
+				if(work.Vmax) {
+					if(v > work.Vmax && v <= work.Vmax + work.Vmaxhyst) v = work.Vmax;
+				}
 				if(work.round == round_true) v += 5;
 				else if(work.round == round_up) v += 9;
 				v /= 10; // 0.001 -> 0.01
@@ -510,17 +525,20 @@ void setup()
 	DEBUG(F("Cells: ")); DEBUGN(work.bms_qty);
 	DEBUGN(F("BMS slave address: 1"));
 	DEBUG(F("BMS read period, ms: "));
-	if(work.UART_read_period == 1) DEBUGN(work.UART_read_period);
+	if(work.UART_read_period > 1) DEBUGN(work.UART_read_period);
 	else if(work.UART_read_period == 1) DEBUGN(F("Synch I2C"));
 	else DEBUGN(F("OFF"));
-	DEBUG(F("BMS voltage round: ")); DEBUGN(work.round == round_true ? "5/4" : work.round == round_cut ? "cut" : work.round == round_up ? "up" : "?");
+	DEBUG(F("BMS voltage round: ")); DEBUGN(work.round == round_true ? F("5/4") : work.round == round_cut ? F("cut") : work.round == round_up ? F("up") : F("?"));
 	DEBUG(F("BMS voltage correct, mV: ")); DEBUGN(work.V_correct);
+	DEBUG(F("BMS cell max catch, mV: ")); if(work.Vmax) { DEBUG(work.Vmax); DEBUG('+'); DEBUGN(work.Vmaxhyst); } else DEBUGN(F("OFF"));
 	DEBUGN(F("\nCommands:"));
 	DEBUG((const __FlashStringHelper*)dbg_debug); DEBUGN(F("=0,1,2"));
 	DEBUG((const __FlashStringHelper*)dbg_period); DEBUGN(F("=0-off,1-synch,X ms"));
 	DEBUG((const __FlashStringHelper*)dbg_cells); DEBUGN(F("=X"));
 	DEBUG((const __FlashStringHelper*)dbg_round); DEBUGN(F("=0-5/4,1-cut,2-up"));
 	DEBUG((const __FlashStringHelper*)dbg_correct); DEBUGN(F("=X mV"));
+	DEBUG((const __FlashStringHelper*)dbg_vmax); DEBUGN(F("=X mV (1 cell)"));
+	DEBUG((const __FlashStringHelper*)dbg_vmaxhyst); DEBUGN(F("=X mV"));
 	DEBUG((const __FlashStringHelper*)dbg_temp); DEBUGN(F("=X"));
 	DEBUGN(F("Vn=X (All: n=0) \nQn=X"));
 	DEBUG((const __FlashStringHelper*)dbg_seterr); DEBUGN(F("=X"));
