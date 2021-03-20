@@ -41,7 +41,7 @@ extern "C" {
 const uint8_t BMS_Cmd_Request[] PROGMEM = { 0x55, 0xAA, 0x01, 0xFF, 0x00, 0x00, 0xFF };
 
 //#define MICROART_BMS_READWRITE				// Include code for Microart BMS
-#define DEBUG_TO_SERIAL				230400
+#define DEBUG_TO_SERIAL				57600
 #define DEBUG_READ_PERIOD			2000	// ms
 //#define DebugSerial 				Serial  // when active - UART BMS does not used
 
@@ -68,6 +68,7 @@ const char dbg_period[] PROGMEM = "period";
 const char dbg_debug[] PROGMEM = "debug";
 const char dbg_round[] PROGMEM = "round";
 const char dbg_correct[] PROGMEM = "correct";
+const char dbg_temp_correct[] PROGMEM = "tempcorr";
 const char dbg_vmax[] PROGMEM = "Vmax";
 const char dbg_vmaxhyst[] PROGMEM = "Vmaxhyst";
 const char dbg_seterr[] PROGMEM = "ERR";
@@ -92,7 +93,8 @@ struct WORK {
 	uint32_t UART_read_period;		// ms
 	uint8_t  round;					// round_*
 	int16_t  V_correct;				// mV
-	int16_t  Vmax;					// mV
+	int8_t   temp_correct;			// mV
+	uint8_t  _reserved_;
 	int16_t  Vmaxhyst;				// mV
 } work;
 
@@ -118,7 +120,7 @@ uint8_t  bms_idx = 0;
 uint8_t  bms_idx_prev = 0;
 uint32_t bms_loop_time;
 uint16_t bms_min = 0;				// V, hundreds
-uint16_t bms_full = 0;				// V, hundreds
+int16_t  bms_full = 0;				// V, hundreds
 bool     bms_need_read = true;
 uint8_t  map_mode = 0;
 uint8_t  temp = BMS_NO_TEMP;		// C, +50
@@ -265,6 +267,10 @@ void DebugSerial_read(void)
 			if(strncmp_P(debug_read_buffer, dbg_temp, sizeof(dbg_temp)-1) == 0) {
 				temp = d + 50;
 				DEBUG(d);
+			} else if(strncmp_P(debug_read_buffer, dbg_temp_correct, sizeof(dbg_temp_correct)-1) == 0) {
+				work.temp_correct = d;
+				DEBUG(d);
+				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 			} else if(strncmp_P(debug_read_buffer, dbg_cells, sizeof(dbg_cells)-1) == 0) {
 				if(d < 2) d = 2;
 				work.bms_qty = d;
@@ -284,10 +290,6 @@ void DebugSerial_read(void)
 				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 			} else if(strncmp_P(debug_read_buffer, dbg_vmaxhyst, sizeof(dbg_vmaxhyst)-1) == 0) {
 				work.Vmaxhyst = d;
-				DEBUG(d);
-				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
-			} else if(strncmp_P(debug_read_buffer, dbg_vmax, sizeof(dbg_vmax)-1) == 0) {
-				work.Vmax = d;
 				DEBUG(d);
 				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 			} else if(strncmp_P(debug_read_buffer, dbg_debug, sizeof(dbg_debug)-1) == 0) {
@@ -475,15 +477,15 @@ void BMS_Serial_read(void)
 					v += work.V_correct;
 					if(v < 0) v = 0;
 				}
-				if(work.Vmax) {
-					if(v > work.Vmax && v <= work.Vmax + work.Vmaxhyst) v = work.Vmax;
+				if(work.Vmaxhyst && bms_full) {
+					if(v > bms_full && v <= bms_full + work.Vmaxhyst) v = bms_full;
 				}
 				if(work.round == round_true) v += 5;
 				else if(work.round == round_up) v += 9;
 				v /= 10; // 0.001 -> 0.01
 				ATOMIC_BLOCK(ATOMIC_FORCEON) bms[i] = v;
 			}
-			temp = read_buffer[72] + 50;
+			temp = read_buffer[72] + 50 + work.temp_correct;
 			memset(bms_Q, 0, sizeof(bms_Q));
 			uint8_t i = read_buffer[9];
 			if(i < work.bms_qty && read_buffer[11]) bms_Q[i] = 100UL * (read_buffer[15]*256 + read_buffer[16]) / (read_buffer[23 + i*2]*256 + read_buffer[24 + i*2]); // Q_Cell=100*I/(Ucell/R), R=1
@@ -530,16 +532,17 @@ void setup()
 	else DEBUGN(F("OFF"));
 	DEBUG(F("BMS voltage round: ")); DEBUGN(work.round == round_true ? F("5/4") : work.round == round_cut ? F("cut") : work.round == round_up ? F("up") : F("?"));
 	DEBUG(F("BMS voltage correct, mV: ")); DEBUGN(work.V_correct);
-	DEBUG(F("BMS cell max catch, mV: ")); if(work.Vmax) { DEBUG(work.Vmax); DEBUG('+'); DEBUGN(work.Vmaxhyst); } else DEBUGN(F("OFF"));
+	DEBUG(F("BMS cell max catch, mV: ")); if(work.Vmaxhyst) { DEBUG('+'); DEBUGN(work.Vmaxhyst); } else DEBUGN(F("OFF"));
+	DEBUG(F("BMS Temp correct, C: ")); DEBUGN(work.temp_correct);
 	DEBUGN(F("\nCommands:"));
 	DEBUG((const __FlashStringHelper*)dbg_debug); DEBUGN(F("=0,1,2,3"));
 	DEBUG((const __FlashStringHelper*)dbg_period); DEBUGN(F("=0-off,1-synch,X ms"));
 	DEBUG((const __FlashStringHelper*)dbg_cells); DEBUGN(F("=X"));
 	DEBUG((const __FlashStringHelper*)dbg_round); DEBUGN(F("=0-5/4,1-cut,2-up"));
 	DEBUG((const __FlashStringHelper*)dbg_correct); DEBUGN(F("=X mV"));
-	DEBUG((const __FlashStringHelper*)dbg_vmax); DEBUGN(F("=X mV (1 cell)"));
 	DEBUG((const __FlashStringHelper*)dbg_vmaxhyst); DEBUGN(F("=X mV"));
 	DEBUG((const __FlashStringHelper*)dbg_temp); DEBUGN(F("=X"));
+	DEBUG((const __FlashStringHelper*)dbg_temp_correct); DEBUGN(F("=X"));
 	DEBUGN(F("Vn=X (All: n=0) \nQn=X"));
 	DEBUG((const __FlashStringHelper*)dbg_seterr); DEBUGN(F("=X"));
 #ifdef MICROART_BMS_READWRITE
@@ -630,6 +633,9 @@ void loop()
 				bms_min = i2c_receive[2] + 200;
 				bms_full = i2c_receive[3] + 200;
 				map_mode = i2c_receive[4];
+				if(debug == 2) {
+					DEBUG(F("I2C_W: Min=")); DEBUG(bms_min); DEBUG(F("Max=")); DEBUG(bms_full); DEBUG(F("Mode=")); DEBUGN(map_mode);
+				}
 			}
 			if(i2c_receive_idx > i2c_receive[0] + 1) {
 				memcpy(i2c_receive, i2c_receive + i2c_receive[0] + 1, i2c_receive_idx -= i2c_receive[0] + 1);
