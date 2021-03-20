@@ -21,7 +21,7 @@ RJ-11 6P6C:
 
 */
 
-#define VERSION F("1.00")
+#define VERSION F("1.0")
 
 #include "Arduino.h"
 #include <avr/wdt.h>
@@ -41,7 +41,7 @@ extern "C" {
 const uint8_t BMS_Cmd_Request[] PROGMEM = { 0x55, 0xAA, 0x01, 0xFF, 0x00, 0x00, 0xFF };
 
 //#define MICROART_BMS_READWRITE				// Include code for Microart BMS
-#define DEBUG_TO_SERIAL				9600
+#define DEBUG_TO_SERIAL				230400
 #define DEBUG_READ_PERIOD			2000	// ms
 //#define DebugSerial 				Serial  // when active - UART BMS does not used
 
@@ -58,8 +58,8 @@ SoftwareSerial DebugSerial(3, 2); 	// RX, TX
 #define DEBUG(s) DebugSerial.print(s)
 #define DEBUGH(s) DebugSerial.print(s, 16)
 #define DEBUGN(s) DebugSerial.println(s)
-#define DEBUG2(s) { if(debug) DebugSerial.print(s); }
-#define DEBUG2N(s) { if(debug) DebugSerial.println(s); }
+#define DEBUGIF(d,s) { if(debug >= d) DebugSerial.print(s); }
+#define DEBUGIFN(d,s) { if(debug >= d) DebugSerial.println(s); }
 char	debug_read_buffer[64];
 uint8_t debug_read_idx = 0;
 const char dbg_temp[] PROGMEM = "temp";
@@ -76,8 +76,8 @@ const char dbg_I2C_READ_BMS[] PROGMEM = "I2C_READ_BMS";
 #else
 #define DEBUG(s)
 #define DEBUGN(s)
-#define DEBUG2(s)
-#define DEBUG2N(s)
+#define DEBUGIF(d,s)
+#define DEBUGIFN(d,s)
 #endif
 
 enum {
@@ -111,7 +111,7 @@ enum {
 	f_BMS_Ready = 0
 };
 uint8_t  flags = 0;					// f_*
-uint8_t  debug = 0;					// 0 - off, 1 - on, 2 - detailed dump
+int8_t  debug = 0;					// 0 - off, 1 - on, 2 - detailed dump, 3 - full dump
 uint16_t bms[BMS_QTY_MAX];			// V, hundreds
 uint8_t  bms_Q[BMS_QTY_MAX];		// %
 uint8_t  bms_idx = 0;
@@ -230,7 +230,7 @@ bool Wait_Microart_BMS_Response(void)
 				uint8_t b = Wire.read();
 				crc += b;
 				debug_read_buffer[j++] = b;
-				DEBUG2(b); DEBUG2(' ');
+				DEBUGIF(2,b); DEBUGIF(2,' ');
 			}
 			if(crc != 0) {
 				DEBUG(F("CRC ERROR BMS-")); DEBUGN(bms);
@@ -299,7 +299,7 @@ void DebugSerial_read(void)
 #ifdef MICROART_BMS_READWRITE
 			} else if(strncmp_P(debug_read_buffer, dbg_I2C_WRITE_BMS, sizeof(dbg_I2C_WRITE_BMS)-1) == 0) { // I2C_WRITE_BMSa=x -> a - address, x - byte
 				uint8_t addr = strtol(debug_read_buffer + sizeof(dbg_I2C_WRITE_BMS)-1, NULL, 0);
-				DEBUG2(addr); DEBUG2(',');
+				DEBUGIF(2,addr); DEBUGIF(2,',');
 				DEBUG(d); DEBUG(' ');
 				if(!Wait_Microart_BMS_Response()) break;
 				uint8_t i = 1;
@@ -356,12 +356,12 @@ void DebugSerial_read(void)
 						uint8_t b = Wire.read();
 						crc += b;
 						debug_read_buffer[j++] = b;
-						DEBUG2(b); DEBUG2(' ');
+						DEBUGIF(2,b); DEBUGIF(2,' ');
 					}
 					if(crc != 0) {
 						DEBUG(F("- CRC ERROR!"));
 					} else {
-						DEBUG2(F(": "));
+						DEBUGIF(2,F(": "));
 						DEBUG(debug_read_buffer[4]);
 					}
 					DEBUGN();
@@ -447,7 +447,7 @@ void BMS_Serial_read(void)
 				DEBUG('\n');
 			}
 #ifdef DEBUG_TO_SERIAL
-			if(debug) {
+			if(debug >= 3) {
 				DEBUG(F("BMS "));
 				if(read_buffer[21]) DEBUGN(F("ON")); else DEBUG(F("OFF"));
 				uint16_t n = read_buffer[4]*256 + read_buffer[5];
@@ -532,7 +532,7 @@ void setup()
 	DEBUG(F("BMS voltage correct, mV: ")); DEBUGN(work.V_correct);
 	DEBUG(F("BMS cell max catch, mV: ")); if(work.Vmax) { DEBUG(work.Vmax); DEBUG('+'); DEBUGN(work.Vmaxhyst); } else DEBUGN(F("OFF"));
 	DEBUGN(F("\nCommands:"));
-	DEBUG((const __FlashStringHelper*)dbg_debug); DEBUGN(F("=0,1,2"));
+	DEBUG((const __FlashStringHelper*)dbg_debug); DEBUGN(F("=0,1,2,3"));
 	DEBUG((const __FlashStringHelper*)dbg_period); DEBUGN(F("=0-off,1-synch,X ms"));
 	DEBUG((const __FlashStringHelper*)dbg_cells); DEBUGN(F("=X"));
 	DEBUG((const __FlashStringHelper*)dbg_round); DEBUGN(F("=0-5/4,1-cut,2-up"));
@@ -569,7 +569,7 @@ void loop()
 		if(bms_idx == 0) {
 			bms_need_read = true;
 #ifdef DEBUG_TO_SERIAL
-			if(debug) {
+			if(debug >= 2) {
 				DEBUG(F("I2C ms: "));
 				DEBUGN(millis() - bms_loop_time);
 				bms_loop_time = millis();
@@ -577,7 +577,7 @@ void loop()
 #endif
 		}
 #ifdef DEBUG_TO_SERIAL
-		if(debug == 2) {
+		if(debug >= 3) {
 			DEBUG(F("I2C_R_"));
 			DEBUG(bms_idx_prev + 1);
 			DEBUG(F("->"));
@@ -612,20 +612,20 @@ void loop()
 #endif
 	// I2C slave receive
 	if(i2c_receive_idx && i2c_receive_idx > i2c_receive[0]) { // i2c write
-		DEBUG2(F("I2C_W: "));
+		DEBUGIF(3,F("I2C_W: "));
 		if(i2c_receive[0] >= sizeof(i2c_receive)) {
-			DEBUG2(F("LEN ERROR!"));
+			DEBUGIFN(0,F("LEN ERROR!"));
 			i2c_receive_idx = 0;
 		} else {
 			uint8_t crc = 0;
 			for(uint8_t i = 0; i <= i2c_receive[0]; i++) { // +CRC
 				crc += i2c_receive[i];
-				DEBUG2(i2c_receive[i]);
-				DEBUG2(" ");
+				DEBUGIF(3,i2c_receive[i]);
+				DEBUGIF(3," ");
 			}
 			if(crc != 0) {
 				error_alarm_time = 50;
-				DEBUG2(F("- CRC ERROR!"));
+				DEBUGIFN(0,F("- CRC ERROR!"));
 			} else if(i2c_receive[1] == 4) { // Broadcast I2CCom_JobWR
 				bms_min = i2c_receive[2] + 200;
 				bms_full = i2c_receive[3] + 200;
@@ -635,7 +635,7 @@ void loop()
 				memcpy(i2c_receive, i2c_receive + i2c_receive[0] + 1, i2c_receive_idx -= i2c_receive[0] + 1);
 			} else i2c_receive_idx = 0;
 		}
-		DEBUG2(F("\n"));
+		DEBUGIF(3,F("\n"));
 	}
 	delay(MAIN_LOOP_PERIOD);
 }
