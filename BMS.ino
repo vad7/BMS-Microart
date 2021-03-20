@@ -113,14 +113,14 @@ enum {
 	f_BMS_Ready = 0
 };
 uint8_t  flags = 0;					// f_*
-int8_t  debug = 0;					// 0 - off, 1 - on, 2 - detailed dump, 3 - full dump
+int8_t  debug = 0;					// 0 - off, 1 - on, 2 - detailed dump, 3 - full dump, 4 - BMS full
 uint16_t bms[BMS_QTY_MAX];			// V, hundreds
 uint8_t  bms_Q[BMS_QTY_MAX];		// %
 uint8_t  bms_idx = 0;
 uint8_t  bms_idx_prev = 0;
 uint32_t bms_loop_time;
-uint16_t bms_min = 0;				// V, hundreds
-int16_t  bms_full = 0;				// V, hundreds
+int16_t  bms_min = 0;				// mV
+int16_t  bms_full = 0;				// mV
 bool     bms_need_read = true;
 uint8_t  map_mode = 0;
 uint8_t  temp = BMS_NO_TEMP;		// C, +50
@@ -264,13 +264,13 @@ void DebugSerial_read(void)
 			*p = '\0';
 			DEBUG(F("CFG: ")); DEBUG(debug_read_buffer); DEBUG('=');
 			uint16_t d = strtol(p + 1, NULL, 0);
-			if(strncmp_P(debug_read_buffer, dbg_temp, sizeof(dbg_temp)-1) == 0) {
+			if(strncmp_P(debug_read_buffer, dbg_temp_correct, sizeof(dbg_temp_correct)-1) == 0) {
+				work.temp_correct = d;
+				DEBUG(work.temp_correct);
+				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
+			} else if(strncmp_P(debug_read_buffer, dbg_temp, sizeof(dbg_temp)-1) == 0) {
 				temp = d + 50;
 				DEBUG(d);
-			} else if(strncmp_P(debug_read_buffer, dbg_temp_correct, sizeof(dbg_temp_correct)-1) == 0) {
-				work.temp_correct = d;
-				DEBUG(d);
-				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 			} else if(strncmp_P(debug_read_buffer, dbg_cells, sizeof(dbg_cells)-1) == 0) {
 				if(d < 2) d = 2;
 				work.bms_qty = d;
@@ -416,15 +416,15 @@ void BMS_Serial_read(void)
 				error_alarm_time = 50;
 				break;
 			}
-			if(debug == 2) DEBUG(F("BMS Answer: "));
+			if(debug == 4) DEBUG(F("BMS Answer: "));
 			uint8_t crc = 0;
 			for(uint8_t i = 0; i < sizeof(read_buffer) - 1; i++) {
-				if(debug == 2) {
+				if(debug == 4) {
 					DEBUG(i); DEBUG('='); DEBUGH(read_buffer[i]); DEBUG(' ');
 				}
 				crc += read_buffer[i];
 			}
-			if(debug == 2) DEBUG('\n');
+			if(debug == 4) DEBUG('\n');
 			if(crc != read_buffer[sizeof(read_buffer) - 1]) {
 				DEBUGN(F("BMS: CRC Error!"));
 				last_error = ERR_BMS_Read;
@@ -449,7 +449,7 @@ void BMS_Serial_read(void)
 				DEBUG('\n');
 			}
 #ifdef DEBUG_TO_SERIAL
-			if(debug >= 3) {
+			if(debug == 3) {
 				DEBUG(F("BMS "));
 				if(read_buffer[21]) DEBUGN(F("ON")); else DEBUG(F("OFF"));
 				uint16_t n = read_buffer[4]*256 + read_buffer[5];
@@ -478,7 +478,7 @@ void BMS_Serial_read(void)
 					if(v < 0) v = 0;
 				}
 				if(work.Vmaxhyst && bms_full) {
-					if(v > bms_full && v <= bms_full + work.Vmaxhyst) v = bms_full;
+					if(v >= bms_full && v <= bms_full + work.Vmaxhyst) v = bms_full;
 				}
 				if(work.round == round_true) v += 5;
 				else if(work.round == round_up) v += 9;
@@ -523,6 +523,7 @@ void setup()
 		eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 	}
 	eeprom_read_block(&work, &EEPROM.work, sizeof(EEPROM.work));
+	memset(bms_Q, 0, sizeof(bms_Q));
 #ifdef DEBUG_TO_SERIAL
 	DEBUG(F("Cells: ")); DEBUGN(work.bms_qty);
 	DEBUGN(F("BMS slave address: 1"));
@@ -630,12 +631,13 @@ void loop()
 				error_alarm_time = 50;
 				DEBUGIFN(0,F("- CRC ERROR!"));
 			} else if(i2c_receive[1] == 4) { // Broadcast I2CCom_JobWR
-				bms_min = i2c_receive[2] + 200;
-				bms_full = i2c_receive[3] + 200;
+				bms_min = (i2c_receive[2] + 200) * 10;
+				bms_full = (i2c_receive[3] + 200) * 10;
 				map_mode = i2c_receive[4];
 				if(debug == 2) {
-					DEBUG(F("I2C_W: Min=")); DEBUG(bms_min); DEBUG(F("Max=")); DEBUG(bms_full); DEBUG(F("Mode=")); DEBUGN(map_mode);
+					DEBUG(F("I2C_W: Min=")); DEBUG(bms_min); DEBUG(F(",Max=")); DEBUG(bms_full); DEBUG(F(",Mode=")); DEBUGN(map_mode);
 				}
+				if(work.UART_read_period == 1 && bms_Q[0] == 0) bms_need_read = true;
 			}
 			if(i2c_receive_idx > i2c_receive[0] + 1) {
 				memcpy(i2c_receive, i2c_receive + i2c_receive[0] + 1, i2c_receive_idx -= i2c_receive[0] + 1);
