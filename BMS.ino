@@ -70,10 +70,12 @@ const char dbg_temp[] PROGMEM = "temp";
 const char dbg_cells[] PROGMEM = "cells";
 const char dbg_period[] PROGMEM = "period";
 const char dbg_debug[] PROGMEM = "debug";
-const char dbg_round[] PROGMEM = "round";
-const char dbg_correct[] PROGMEM = "correct";
+const char dbg_round[] PROGMEM = "Vround";
+const char dbg_correct[] PROGMEM = "Vcorr";
 const char dbg_temp_correct[] PROGMEM = "tempcorr";
 const char dbg_delta_default[] PROGMEM = "deltadef";
+const char dbg_delta_pause[] PROGMEM = "deltapause";
+const char dbg_watchdog[] PROGMEM = "watchdog";
 const char dbg_vmax[] PROGMEM = "Vmax";
 const char dbg_vmaxhyst[] PROGMEM = "Vmaxhyst";
 const char dbg_seterr[] PROGMEM = "ERR";
@@ -311,6 +313,14 @@ void DebugSerial_read(void)
 				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 			} else if(strncmp_P(debug_read_buffer, dbg_delta_default, sizeof(dbg_delta_default)-1) == 0) {
 				work.BalansDeltaDefault = d;
+				DEBUG(d);
+				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
+			} else if(strncmp_P(debug_read_buffer, dbg_delta_pause, sizeof(dbg_delta_pause)-1) == 0) {
+				work.BalansDeltaPause = d;
+				DEBUG(d);
+				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
+			} else if(strncmp_P(debug_read_buffer, dbg_watchdog, sizeof(dbg_watchdog)-1) == 0) {
+				work.watchdog = d;
 				DEBUG(d);
 				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 			} else if(strncmp_P(debug_read_buffer, dbg_debug, sizeof(dbg_debug)-1) == 0) {
@@ -574,31 +584,29 @@ void setup()
 	eeprom_read_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 	memset(bms_Q, 0, sizeof(bms_Q));
 #ifdef DEBUG_TO_SERIAL
-	DEBUG(F("Cells: ")); DEBUGN(work.bms_qty);
+	DEBUG(F("Cells: ")); DEBUG(work.bms_qty); DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_cells); DEBUGN(F("=X)"));
 	DEBUGN(F("BMS slave address: 1"));
 	DEBUG(F("BMS read period, ms: "));
-	if(work.UART_read_period > 1) DEBUGN(work.UART_read_period);
-	else if(work.UART_read_period == 1) DEBUGN(F("Synch I2C"));
-	else DEBUGN(F("OFF"));
-	DEBUG(F("BMS voltage round: ")); DEBUGN(work.round == round_true ? F("5/4") : work.round == round_cut ? F("cut") : work.round == round_up ? F("up") : F("?"));
-	DEBUG(F("BMS voltage correct, mV: ")); DEBUGN(work.V_correct);
-	DEBUG(F("BMS cell max catch, 10mV: ")); if(work.Vmaxhyst) { DEBUG('+'); DEBUGN(work.Vmaxhyst); } else DEBUGN(F("OFF"));
-	DEBUG(F("BMS Temp correct, C: ")); DEBUGN(work.temp_correct);
-	DEBUG(F("BMS Balans delta, mV: ")); DEBUGN(work.BalansDeltaDefault);
+	if(work.UART_read_period > 1) DEBUG(work.UART_read_period);
+	else if(work.UART_read_period == 1) DEBUG(F("Synch I2C"));
+	else DEBUG(F("OFF"));
+	DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_period); DEBUGN(F("=0-off,1-synch,X ms)"));
+	DEBUG(F("Watchdog: ")); if(!work.watchdog) DEBUG(F("NONE")); else { if(work.watchdog & 1) DEBUG(F("I2C ")); if(work.watchdog & 2) DEBUG(F("BMS")); }
+	DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_watchdog); DEBUGN(F("=1-I2C,2-BMS,3-all)"));
+	DEBUG(F("BMS voltage round: ")); DEBUG(work.round == round_true ? F("5/4") : work.round == round_cut ? F("cut") : work.round == round_up ? F("up") : F("?"));
+	DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_round); DEBUGN(F("=0-5/4,1-cut,2-up)"));
+	DEBUG(F("BMS voltage correct, mV: ")); DEBUG(work.V_correct); DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_correct); DEBUGN(F("=X mV)"));
+	DEBUG(F("BMS cell max catch, 10mV: ")); if(work.Vmaxhyst) { DEBUG('+'); DEBUG(work.Vmaxhyst); } else DEBUG(F("OFF"));
+	DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_vmaxhyst); DEBUGN(F("=X mV)"));
+	DEBUG(F("BMS Temp correct, C: ")); DEBUG(work.temp_correct); DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_temp_correct); DEBUGN(F("=X)"));
+	DEBUG(F("BMS Balans delta, mV: ")); DEBUG(work.BalansDeltaDefault); DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_delta_default); DEBUGN(F("=X)"));
 	DEBUG(F("BMS Balans delta array, [I>mV]: "));
 	for(uint8_t i = 0; i < sizeof(work.BalansDelta)/sizeof(work.BalansDelta[0]); i++) {	DEBUG(work.BalansDeltaI[i]); DEBUG('>'); DEBUG(work.BalansDelta[i]); DEBUG(' '); }
-	DEBUG(F("BMS Balans delta decrease pause, s: ")); DEBUGN(work.BalansDeltaPause);
+	DEBUGN(F(" (Delta: Dn=X, Current: In=X)"));
+	DEBUG(F("BMS Balans delta decrease pause, s: ")); DEBUG(work.BalansDeltaPause);  DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_delta_default); DEBUGN(F("=X)"));
 	DEBUGN(F("\nCommands:"));
 	DEBUG((const __FlashStringHelper*)dbg_debug); DEBUGN(F("=0,1,2,3"));
-	DEBUG((const __FlashStringHelper*)dbg_period); DEBUGN(F("=0-off,1-synch,X ms"));
-	DEBUG((const __FlashStringHelper*)dbg_cells); DEBUGN(F("=X"));
-	DEBUG((const __FlashStringHelper*)dbg_round); DEBUGN(F("=0-5/4,1-cut,2-up"));
-	DEBUG((const __FlashStringHelper*)dbg_correct); DEBUGN(F("=X mV"));
-	DEBUG((const __FlashStringHelper*)dbg_vmaxhyst); DEBUGN(F("=X mV"));
 	DEBUG((const __FlashStringHelper*)dbg_temp); DEBUGN(F("=X"));
-	DEBUG((const __FlashStringHelper*)dbg_temp_correct); DEBUGN(F("=X"));
-	DEBUG((const __FlashStringHelper*)dbg_delta_default); DEBUGN(F("=X"));
-	DEBUGN(F("Delta arr: Dn=X\nCurrent arr: In=X"));
 	DEBUGN(F("Out: Vn=X (All: n=0)\nQn=X"));
 	DEBUG((const __FlashStringHelper*)dbg_seterr); DEBUGN(F("=X"));
 #ifdef MICROART_BMS_READWRITE
