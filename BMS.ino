@@ -39,7 +39,7 @@ extern "C" {
 #define MAIN_LOOP_PERIOD			1		// msec
 #define BMS_NO_TEMP					255
 #define WATCHDOG_NO_CONN			60UL	// sec
-#define BMS_PAUSE_BETWEEN_READS		50UL	// msec
+#define BMS_PAUSE_BETWEEN_READS		150UL	// msec
 #define BMS_CHANGE_DELTA_PAUSE_MIN  600		// sec
 const uint8_t BMS_Cmd_Request[] PROGMEM = { 0x55, 0xAA, 0x01, 0xFF, 0x00, 0x00, 0xFF };
 const uint8_t BMS_Cmd_ChangeDelta[] PROGMEM = { 0x55, 0xAA, 0x01, 0xF2 };
@@ -478,9 +478,11 @@ void BMS_Serial_read(void)
 				break;
 			}
 			if(read_buffer[3] == 0xF2) { // Change delta voltage
+				delta_active = read_buffer[4]*256 + read_buffer[5];
 				if(debug) {
-					DEBUG(F("New delta: ")); DEBUGN(read_buffer[4]*256 + read_buffer[5]);
+					DEBUG(F("New delta: ")); DEBUGN(delta_active);
 				}
+				delta_change_pause = 0;
 				watchdog_BMS = 0;
 				bms_last_read_time = millis();
 			} else if(read_buffer[3] == 0xFF) { // Request answer
@@ -693,13 +695,14 @@ void loop()
 		bms_last_read_time = m;
 		if((work.UART_read_period == 1 && bms_need_read) || (work.UART_read_period > 1 && m - bms_reading > work.UART_read_period)) {
 			bms_reading = m;
-			bms_last_read_time = m + BMS_PAUSE_BETWEEN_READS;
+			bms_last_read_time += BMS_PAUSE_BETWEEN_READS;
 			bms_need_read = false;
 			read_idx = 0;	// reset read index
 			for(uint8_t i = 0; i < sizeof(BMS_Cmd_Request); i++) BMS_SERIAL.write(pgm_read_byte(&BMS_Cmd_Request[i]));
 		} else if(delta_new) {
 			uint8_t crc = 0;
 			uint8_t b;
+			read_idx = 0;	// reset read index
 			for(uint8_t i = 0; i < sizeof(BMS_Cmd_ChangeDelta); i++) {
 				BMS_SERIAL.write(b = pgm_read_byte(&BMS_Cmd_ChangeDelta[i]));
 				crc += b;
@@ -754,6 +757,7 @@ void loop()
 							delta_new = work.BalansDelta[i];
 					} else if(delta_active != work.BalansDeltaDefault) delta_new = work.BalansDeltaDefault;
 					if(debug >= 1) { DEBUG(F("D_NEW: ")); DEBUGN(delta_new); }
+					if(delta_new) delta_change_pause = BMS_CHANGE_DELTA_PAUSE_MIN > 60 ? BMS_CHANGE_DELTA_PAUSE_MIN - 60 : 60;
 				}
 			}
 			if(i2c_receive_idx > i2c_receive[0] + 1) {
