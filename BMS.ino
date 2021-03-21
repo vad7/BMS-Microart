@@ -506,11 +506,12 @@ void BMS_Serial_read(void)
 					DEBUG(F("BMS "));
 					if(read_buffer[21]) DEBUG(F("ON")); else DEBUG(F("OFF"));
 					uint16_t n = read_buffer[4]*256 + read_buffer[5];
-					DEBUG(F(", V: ")); DEBUG(n / 100); DEBUG('.'); n %= 100; if(n < 10) DEBUG('0'); DEBUG(n);
-					DEBUG(F(", Diff(mV): ")); DEBUG(read_buffer[13]*256 + read_buffer[14]);
-					DEBUG(F(", Bal(mA): ")); DEBUG(read_buffer[15]*256 + read_buffer[16]);
-					DEBUG(F(", T(C): ")); DEBUG(read_buffer[72]);
-					DEBUG(F(", W: ")); DEBUG(read_buffer[8]); DEBUG(','); DEBUG(read_buffer[9]); DEBUG(','); DEBUG(read_buffer[10]); DEBUG(','); DEBUG(read_buffer[11]);
+					DEBUG(F(",V:")); DEBUG(n / 100); DEBUG('.'); n %= 100; if(n < 10) DEBUG('0'); DEBUG(n);
+					DEBUG(F(",D(mV):")); DEBUG(read_buffer[13]*256 + read_buffer[14]);
+					DEBUG(F(",Trg(mV):")); DEBUG(read_buffer[17]*256 + read_buffer[18]);
+					DEBUG(F(",Bal(mA):")); DEBUG(read_buffer[15]*256 + read_buffer[16]);
+					//DEBUG(F(",T(C):")); DEBUG(read_buffer[72]);
+					//DEBUG(F(",W:")); DEBUG(read_buffer[8]); DEBUG(','); DEBUG(read_buffer[9]); DEBUG(','); DEBUG(read_buffer[10]); DEBUG(','); DEBUG(read_buffer[11]);
 					DEBUG(F("\n"));
 				}
 	#endif
@@ -611,7 +612,7 @@ void setup()
 	DEBUGN(F("\nCommands:"));
 	DEBUG((const __FlashStringHelper*)dbg_debug); DEBUGN(F("=0,1,2,3"));
 	DEBUG((const __FlashStringHelper*)dbg_temp); DEBUGN(F("=X"));
-	DEBUG((const __FlashStringHelper*)dbg_temp); DEBUGN(F("=X"));
+	DEBUG((const __FlashStringHelper*)dbg_delta_change_pause); DEBUGN(F("=X"));
 	DEBUGN(F("Out: Vn=X (All: n=0)\nQn=X"));
 	DEBUG((const __FlashStringHelper*)dbg_seterr); DEBUGN(F("=X"));
 #ifdef MICROART_BMS_READWRITE
