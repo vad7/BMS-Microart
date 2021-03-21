@@ -100,7 +100,7 @@ struct WORK {
 	int16_t  V_correct;				// mV
 	int8_t   temp_correct;			// mV
 	uint8_t  watchdog;				// reboot if no data over: 1 - I2C, 2 - BMS
-	int16_t  Vmaxhyst;				// mV
+	int16_t  Vmaxhyst;				// *10mV
 	uint16_t BalansDeltaPause;		// sec
 	uint16_t BalansDeltaDefault;	// Default balans delta voltage, mV
 	uint16_t BalansDelta[2];		// mV
@@ -516,12 +516,12 @@ void BMS_Serial_read(void)
 						v += work.V_correct;
 						if(v < 0) v = 0;
 					}
-					if(work.Vmaxhyst && bms_full) {
-						if(v >= bms_full && v <= bms_full + work.Vmaxhyst) v = bms_full;
-					}
 					if(work.round == round_true) v += 5;
 					else if(work.round == round_up) v += 9;
 					v /= 10; // 0.001 -> 0.01
+					if(work.Vmaxhyst && bms_full) {
+						if(v >= bms_full && v < bms_full + work.Vmaxhyst) v = bms_full - 1;
+					}
 					ATOMIC_BLOCK(ATOMIC_FORCEON) bms[i] = v;
 				}
 				temp = read_buffer[72] + 50 + work.temp_correct;
@@ -560,8 +560,15 @@ void setup()
 		memset(&work, 0, sizeof(work));
 		work.bms_qty = 16;
 		work.mode = 0;
-		work.UART_read_period = 1000;
+		work.UART_read_period = 1;
 		work.round = round_true;
+		work.Vmaxhyst = 1;
+		work.temp_correct = 6;
+		work.BalansDeltaDefault = 10;
+		work.BalansDeltaPause = 1*60*60;
+		work.BalansDeltaI[0] = 6; work.BalansDelta[0] = 20;
+		work.BalansDeltaI[1] = 25; work.BalansDelta[1] = 40;
+		work.watchdog = 3;
 		eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 	}
 	eeprom_read_block(&work, &EEPROM.work, sizeof(EEPROM.work));
@@ -575,7 +582,7 @@ void setup()
 	else DEBUGN(F("OFF"));
 	DEBUG(F("BMS voltage round: ")); DEBUGN(work.round == round_true ? F("5/4") : work.round == round_cut ? F("cut") : work.round == round_up ? F("up") : F("?"));
 	DEBUG(F("BMS voltage correct, mV: ")); DEBUGN(work.V_correct);
-	DEBUG(F("BMS cell max catch, mV: ")); if(work.Vmaxhyst) { DEBUG('+'); DEBUGN(work.Vmaxhyst); } else DEBUGN(F("OFF"));
+	DEBUG(F("BMS cell max catch, 10mV: ")); if(work.Vmaxhyst) { DEBUG('+'); DEBUGN(work.Vmaxhyst); } else DEBUGN(F("OFF"));
 	DEBUG(F("BMS Temp correct, C: ")); DEBUGN(work.temp_correct);
 	DEBUG(F("BMS Balans delta, mV: ")); DEBUGN(work.BalansDeltaDefault);
 	DEBUG(F("BMS Balans delta array, [I>mV]: "));
@@ -655,7 +662,7 @@ void loop()
 #endif
 		}
 #ifdef DEBUG_TO_SERIAL
-		if(debug >= 3) {
+		if(debug >= 4) {
 			DEBUG(F("I2C_R_"));
 			DEBUG(bms_idx_prev + 1);
 			DEBUG(F("->"));
@@ -701,7 +708,7 @@ void loop()
 #endif
 	// I2C slave receive
 	if(i2c_receive_idx && i2c_receive_idx > i2c_receive[0]) { // i2c write
-		DEBUGIF(3,F("I2C_W: "));
+		DEBUGIF(4,F("I2C_W: "));
 		if(i2c_receive[0] >= sizeof(i2c_receive)) {
 			DEBUGIFN(0,F("LEN ERROR!"));
 			i2c_receive_idx = 0;
@@ -709,8 +716,8 @@ void loop()
 			uint8_t crc = 0;
 			for(uint8_t i = 0; i <= i2c_receive[0]; i++) { // +CRC
 				crc += i2c_receive[i];
-				DEBUGIF(3,i2c_receive[i]);
-				DEBUGIF(3," ");
+				DEBUGIF(4,i2c_receive[i]);
+				DEBUGIF(4," ");
 			}
 			if(crc != 0) {
 				error_alarm_time = 50;
@@ -739,7 +746,7 @@ void loop()
 			} else i2c_receive_idx = 0;
 			watchdog_I2C = 0;
 		}
-		DEBUGIF(3,F("\n"));
+		DEBUGIF(4,F("\n"));
 	}
 	delay(MAIN_LOOP_PERIOD);
 }
