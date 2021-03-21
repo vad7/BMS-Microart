@@ -457,7 +457,7 @@ void BMS_Serial_read(void)
 			last_error = 0;
 			read_idx = 0;
 			if(read_buffer[0] != 0xEB || read_buffer[1] != 0x90) {
-				DEBUGN(F("BMS: Header mismatch!"));
+				DEBUGIFN(1,F("BMS: Header mismatch!"));
 				last_error = ERR_BMS_Read;
 				error_alarm_time = 50;
 				break;
@@ -472,7 +472,7 @@ void BMS_Serial_read(void)
 			}
 			if(debug == 4) DEBUG('\n');
 			if(crc != read_buffer[sizeof(read_buffer) - 1]) {
-				DEBUGN(F("BMS: CRC Error!"));
+				DEBUGIFN(1,F("BMS: CRC Error!"));
 				last_error = ERR_BMS_Read;
 				error_alarm_time = 50;
 				break;
@@ -485,21 +485,21 @@ void BMS_Serial_read(void)
 				bms_last_read_time = millis();
 			} else if(read_buffer[3] == 0xFF) { // Request answer
 				if(read_buffer[12] & 0x03) {
-					DEBUG(F("BMS Alarm: "));
+					DEBUGIF(1,F("BMS Alarm: "));
 					error_alarm_time = 50;
 					if(read_buffer[12] & (1<<0)) { // cells num wrong
 						last_error = ERR_BMS_Config;
-						DEBUG(F("Cells_Num "));
+						DEBUGIF(1,F("Cells_Num "));
 					}
 					if(read_buffer[12] & (1<<1)) { // wire resistance is too large
 						last_error = ERR_BMS_Hardware;
-						DEBUG(F("Wire_Resistance "));
+						DEBUGIF(1,F("Wire_Resistance "));
 					}
 	//				if(read_buffer[12] & (1<<2)) { // battery overvoltage
 	//					last_error = ERR_BMS_Hardware;
 	//					DEBUG(F("Overvoltage"));
 	//				}
-					DEBUG('\n');
+					DEBUGIF(1,'\n');
 				}
 	#ifdef DEBUG_TO_SERIAL
 				if(debug == 3) {
@@ -550,7 +550,7 @@ void BMS_Serial_read(void)
 				}
 				watchdog_BMS = 0;
 				bms_last_read_time = millis();
-			} else {
+			} else if(debug) {
 				DEBUG(F("BMS: Wrong response code: ")); DEBUGN(read_buffer[3]);
 			}
 			break;
@@ -699,14 +699,14 @@ void loop()
 		} else if(delta_new) {
 			uint8_t crc = 0;
 			uint8_t b;
-			for(uint8_t i = 0; i < sizeof(BMS_Cmd_Request); i++) {
+			for(uint8_t i = 0; i < sizeof(BMS_Cmd_ChangeDelta); i++) {
 				BMS_SERIAL.write(b = pgm_read_byte(&BMS_Cmd_ChangeDelta[i]));
 				crc += b;
 			}
-			b = delta_new / 256;
+			b = delta_new >> 8;
 			BMS_SERIAL.write(b);
 			crc += b;
-			b = delta_new & 255;
+			b = delta_new & 0xFF;
 			BMS_SERIAL.write(b);
 			crc += b;
 			BMS_SERIAL.write(crc);
@@ -752,6 +752,7 @@ void loop()
 						if(work.BalansDelta[i] > delta_active || (work.BalansDelta[i] < delta_active && delta_change_pause > work.BalansDeltaPause))
 							delta_new = work.BalansDelta[i];
 					} else if(delta_active != work.BalansDeltaDefault) delta_new = work.BalansDeltaDefault;
+					if(debug >= 1) { DEBUG(F("D_NEW: ")); DEBUGN(delta_new); }
 				}
 			}
 			if(i2c_receive_idx > i2c_receive[0] + 1) {
