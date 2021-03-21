@@ -746,7 +746,7 @@ void loop()
 				if(debug == 2) {
 					DEBUG(F("I2C_W: Min=")); DEBUG(bms_min); DEBUG(F(",Max=")); DEBUG(bms_full); DEBUG(F(",Mode=")); DEBUGN(map_mode);
 				}
-				if(work.UART_read_period == 1 && bms_Q[0] == 0) bms_need_read = true;
+				if(work.UART_read_period == 1 && bms[0] == 0) bms_need_read = true;
 			} else if(i2c_receive[1] == 6) { // Broadcast I2CCom_JobWR_MPPT
 				if(delta_change_pause > BMS_CHANGE_DELTA_PAUSE_MIN && delta_active) {
 					uint8_t A = i2c_receive[8];
