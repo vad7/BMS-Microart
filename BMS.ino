@@ -66,10 +66,9 @@ AltSoftSerial DebugSerial;			// pins: RX = D8, TX = D9, unusable = D10
 #define DEBUGIFN(d,s) { if(debug >= d) DebugSerial.println(s); }
 char	debug_read_buffer[64];
 uint8_t debug_read_idx = 0;
-const char dbg_temp[] PROGMEM = "temp";
+const char dbg_debug[] PROGMEM = "debug";
 const char dbg_cells[] PROGMEM = "cells";
 const char dbg_period[] PROGMEM = "period";
-const char dbg_debug[] PROGMEM = "debug";
 const char dbg_round[] PROGMEM = "Vround";
 const char dbg_correct[] PROGMEM = "Vcorr";
 const char dbg_temp_correct[] PROGMEM = "tempcorr";
@@ -81,6 +80,8 @@ const char dbg_vmaxhyst[] PROGMEM = "Vmaxhyst";
 const char dbg_seterr[] PROGMEM = "ERR";
 const char dbg_I2C_WRITE_BMS[] PROGMEM = "I2C_WRITE_BMS";
 const char dbg_I2C_READ_BMS[] PROGMEM = "I2C_READ_BMS";
+const char dbg_temp[] PROGMEM = "temp";
+const char dbg_delta_change_pause[] PROGMEM = "dchgpause";
 #else
 #define DEBUG(s)
 #define DEBUGN(s)
@@ -328,6 +329,9 @@ void DebugSerial_read(void)
 				DEBUG(d);
 			} else if(strncmp_P(debug_read_buffer, dbg_seterr, sizeof(dbg_seterr)-1) == 0) {
 				last_error = d;
+				DEBUG(d);
+			} else if(strncmp_P(debug_read_buffer, dbg_delta_change_pause, sizeof(dbg_delta_change_pause)-1) == 0) {
+				delta_change_pause = d;
 				DEBUG(d);
 #ifdef MICROART_BMS_READWRITE
 			} else if(strncmp_P(debug_read_buffer, dbg_I2C_WRITE_BMS, sizeof(dbg_I2C_WRITE_BMS)-1) == 0) { // I2C_WRITE_BMSa=x -> a - address, x - byte
@@ -607,6 +611,7 @@ void setup()
 	DEBUGN(F("\nCommands:"));
 	DEBUG((const __FlashStringHelper*)dbg_debug); DEBUGN(F("=0,1,2,3"));
 	DEBUG((const __FlashStringHelper*)dbg_temp); DEBUGN(F("=X"));
+	DEBUG((const __FlashStringHelper*)dbg_temp); DEBUGN(F("=X"));
 	DEBUGN(F("Out: Vn=X (All: n=0)\nQn=X"));
 	DEBUG((const __FlashStringHelper*)dbg_seterr); DEBUGN(F("=X"));
 #ifdef MICROART_BMS_READWRITE
@@ -746,7 +751,7 @@ void loop()
 					if(i >= 0) { // found
 						if(work.BalansDelta[i] > delta_active || (work.BalansDelta[i] < delta_active && delta_change_pause > work.BalansDeltaPause))
 							delta_new = work.BalansDelta[i];
-					}
+					} else if(delta_active != work.BalansDeltaDefault) delta_new = work.BalansDeltaDefault;
 				}
 			}
 			if(i2c_receive_idx > i2c_receive[0] + 1) {
