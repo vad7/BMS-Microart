@@ -38,7 +38,7 @@ extern "C" {
 #define BMS_SERIAL_RATE				9600
 #define MAIN_LOOP_PERIOD			1		// msec
 #define BMS_NO_TEMP					255
-#define WATCHDOG_NO_CONN			60UL	// sec
+#define WATCHDOG_NO_CONN			40UL	// sec
 #define BMS_PAUSE_BETWEEN_READS		150UL	// msec
 #define BMS_CHANGE_DELTA_PAUSE_MIN  600		// sec
 #define BMS_CHANGE_DELTA_EQUALIZER  30		// attempts (* ~1 sec)
@@ -586,7 +586,7 @@ void setup()
 		work.BalansDeltaDefault = 10;
 		work.BalansDeltaPause = 1*60*60;
 		work.BalansDeltaI[0] = 6; work.BalansDelta[0] = 20;
-		work.BalansDeltaI[1] = 25; work.BalansDelta[1] = 40;
+		work.BalansDeltaI[1] = 17; work.BalansDelta[1] = 40;
 		work.watchdog = 3;
 		eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 	}
