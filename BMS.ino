@@ -46,8 +46,8 @@ const uint8_t BMS_Cmd_Request[] PROGMEM = { 0x55, 0xAA, 0x01, 0xFF, 0x00, 0x00, 
 const uint8_t BMS_Cmd_ChangeDelta[] PROGMEM = { 0x55, 0xAA, 0x01, 0xF2 };
 
 //#define MICROART_BMS_READWRITE				// Include code for Microart BMS
-#define DEBUG_TO_SERIAL				57600
-#define DEBUG_READ_PERIOD			1000	// ms
+#define DEBUG_TO_SERIAL				38400
+#define DEBUG_READ_PERIOD			1000UL	// ms
 //#define DebugSerial 				Serial  // when active - UART BMS does not used
 
 #ifdef DEBUG_TO_SERIAL
@@ -586,7 +586,7 @@ void setup()
 		work.BalansDeltaDefault = 10;
 		work.BalansDeltaPause = 2*60*60;
 		work.BalansDeltaI[0] = 6; work.BalansDelta[0] = 20;
-		work.BalansDeltaI[1] = 17; work.BalansDelta[1] = 40;
+		work.BalansDeltaI[1] = 16; work.BalansDelta[1] = 40;
 		work.watchdog = 3;
 		eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 	}
