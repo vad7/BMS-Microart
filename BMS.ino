@@ -40,8 +40,8 @@ extern "C" {
 #define BMS_NO_TEMP					255
 #define WATCHDOG_NO_CONN			40UL	// sec
 #define BMS_PAUSE_BETWEEN_READS		150UL	// msec
-#define BMS_CHANGE_DELTA_PAUSE_MIN  600		// sec
-#define BMS_CHANGE_DELTA_EQUALIZER  30		// attempts (* ~1 sec)
+#define BMS_CHANGE_DELTA_PAUSE_MIN  1800	// sec
+#define BMS_CHANGE_DELTA_EQUALIZER  60		// attempts (* ~1 sec)
 const uint8_t BMS_Cmd_Request[] PROGMEM = { 0x55, 0xAA, 0x01, 0xFF, 0x00, 0x00, 0xFF };
 const uint8_t BMS_Cmd_ChangeDelta[] PROGMEM = { 0x55, 0xAA, 0x01, 0xF2 };
 
@@ -584,7 +584,7 @@ void setup()
 		work.Vmaxhyst = 1;
 		work.temp_correct = 6;
 		work.BalansDeltaDefault = 10;
-		work.BalansDeltaPause = 1*60*60;
+		work.BalansDeltaPause = 2*60*60;
 		work.BalansDeltaI[0] = 6; work.BalansDelta[0] = 20;
 		work.BalansDeltaI[1] = 17; work.BalansDelta[1] = 40;
 		work.watchdog = 3;
@@ -754,10 +754,8 @@ void loop()
 					uint8_t A = i2c_receive[8];
 					int8_t i = sizeof(work.BalansDelta)/sizeof(work.BalansDelta[0])-1;
 					for(; i >= 0; i--) if(A >= work.BalansDeltaI[i]) break;
-					uint16_t d = 0;
-					if(i >= 0) { // found
-						if(work.BalansDelta[i] > delta_active || (work.BalansDelta[i] < delta_active && delta_change_pause > work.BalansDeltaPause)) d = work.BalansDelta[i];
-					} else if(delta_active != work.BalansDeltaDefault) d = work.BalansDeltaDefault;
+					uint16_t d = i >= 0 ? work.BalansDelta[i] : work.BalansDeltaDefault;
+					if(d == delta_active || (d < delta_active && delta_change_pause <= work.BalansDeltaPause)) d = 0;
 					if(d) {
 						if(++delta_change_equalizer > BMS_CHANGE_DELTA_EQUALIZER) {
 							delta_change_equalizer = 0;
