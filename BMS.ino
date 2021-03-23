@@ -46,14 +46,16 @@ const uint8_t BMS_Cmd_Request[] PROGMEM = { 0x55, 0xAA, 0x01, 0xFF, 0x00, 0x00, 
 const uint8_t BMS_Cmd_ChangeDelta[] PROGMEM = { 0x55, 0xAA, 0x01, 0xF2 };
 
 //#define MICROART_BMS_READWRITE				// Include code for Microart BMS
-#define DEBUG_TO_SERIAL				19200
+#define DEBUG_TO_SERIAL				115200  // 19200
 #define DEBUG_READ_PERIOD			1000UL	// ms
 //#define DebugSerial 				Serial  // when active - UART BMS does not used
 
 #ifdef DEBUG_TO_SERIAL
 #ifndef DebugSerial
-#include "libraries\AltSoftSerial\AltSoftSerial.h"
-AltSoftSerial DebugSerial;			// pins: RX = D8, TX = D9, unusable = D10
+#include <SoftwareSerial.h>
+SoftwareSerial DebugSerial(3, 2); // RX = D3, TX = D2
+//#include "libraries\AltSoftSerial\AltSoftSerial.h"
+//AltSoftSerial DebugSerial;			// pins: RX = D8, TX = D9, unusable = D10
 #else
 #undef BMS_SERIAL
 #endif
@@ -152,6 +154,7 @@ uint16_t delta_active = 0;			// mV
 uint16_t delta_new = 0;				// mV
 uint16_t delta_change_pause = 0;  	// sec
 uint8_t  delta_change_equalizer = 0; // attempts
+uint8_t  debug_info	= 0b0011;		// b0 - I2C_W1, b1 - I2C_W2
 
 // Called in delay()
 void yield(void)
@@ -742,13 +745,18 @@ void loop()
 				bms_min = (i2c_receive[2] + 200) * 10;
 				bms_full = (i2c_receive[3] + 200) * 10;
 				map_mode = i2c_receive[4];
-				if(debug == 2) {
+				if(debug == 2 || bitRead(debug_info, 0)) {
+					bitClear(debug_info, 0);
 					DEBUG(F("I2C_W: Min=")); DEBUG(bms_min); DEBUG(F(",Max=")); DEBUG(bms_full); DEBUG(F(",Mode=")); DEBUGN(map_mode);
 				}
 				if(work.UART_read_period == 1 && bms[0] == 0) bms_need_read = true;
 			} else if(i2c_receive[1] == 6) { // Broadcast I2CCom_JobWR_MPPT
 				if(delta_change_pause > BMS_CHANGE_DELTA_PAUSE_MIN && !delta_new && delta_active) {
 					uint8_t A = i2c_receive[8];
+					if(debug == 2 || bitRead(debug_info, 1)) {
+						bitClear(debug_info, 1);
+						DEBUG(F("I2C_W: I=")); DEBUGN(A);
+					}
 					int8_t i = sizeof(work.BalansDelta)/sizeof(work.BalansDelta[0])-1;
 					for(; i >= 0; i--) if(A >= work.BalansDeltaI[i]) break;
 					uint16_t d = i >= 0 ? work.BalansDelta[i] : work.BalansDeltaDefault;
