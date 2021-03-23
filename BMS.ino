@@ -46,7 +46,7 @@ const uint8_t BMS_Cmd_Request[] PROGMEM = { 0x55, 0xAA, 0x01, 0xFF, 0x00, 0x00, 
 const uint8_t BMS_Cmd_ChangeDelta[] PROGMEM = { 0x55, 0xAA, 0x01, 0xF2 };
 
 //#define MICROART_BMS_READWRITE				// Include code for Microart BMS
-#define DEBUG_TO_SERIAL				38400
+#define DEBUG_TO_SERIAL				19200
 #define DEBUG_READ_PERIOD			1000UL	// ms
 //#define DebugSerial 				Serial  // when active - UART BMS does not used
 
@@ -275,7 +275,7 @@ bool Wait_Microart_BMS_Response(void)
 void DebugSerial_read(void)
 {
 	while(DebugSerial.available()) {
-		int16_t r = DebugSerial.read();
+		int r = DebugSerial.read();
 		if(r == -1) break;
 		debug_read_buffer[debug_read_idx++] = r;
 		if(r == '\r' || debug_read_idx == sizeof(debug_read_buffer)-1) {
@@ -586,7 +586,7 @@ void setup()
 		work.BalansDeltaDefault = 10;
 		work.BalansDeltaPause = 2*60*60;
 		work.BalansDeltaI[0] = 6; work.BalansDelta[0] = 20;
-		work.BalansDeltaI[1] = 16; work.BalansDelta[1] = 40;
+		work.BalansDeltaI[1] = 16; work.BalansDelta[1] = 50;
 		work.watchdog = 3;
 		eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 	}
@@ -646,7 +646,7 @@ void setup()
 void loop()
 {
 	wdt_reset(); sleep_cpu();
-	static uint32_t led_flashing, bms_reading, dbg_reading;
+	static uint32_t led_flashing, bms_reading;
 	uint32_t m = millis();
 	if(m - watchdog_timer >= 1000UL) { // every 1 sec
 		watchdog_timer = m;
@@ -662,6 +662,9 @@ void loop()
 			}
 		}
 		if(delta_change_pause < 0xFFFF) delta_change_pause++;
+#ifdef DEBUG_TO_SERIAL
+		DebugSerial_read();
+#endif
 	}
 	if(m - led_flashing >= (error_alarm_time == 0 ? 1500UL : 200UL)) {
 		led_flashing = m;
@@ -719,12 +722,6 @@ void loop()
 			delta_new = 0;
 		}
 	}
-#ifdef DEBUG_TO_SERIAL
-	if(m - dbg_reading > DEBUG_READ_PERIOD) {
-		dbg_reading = m;
-		DebugSerial_read();
-	}
-#endif
 	// I2C slave receive
 	if(i2c_receive_idx && i2c_receive_idx > i2c_receive[0]) { // i2c write
 		DEBUGIF(4,F("I2C_W: "));
