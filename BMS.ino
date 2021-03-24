@@ -74,11 +74,11 @@ const char dbg_cells[] PROGMEM = "cells";
 const char dbg_period[] PROGMEM = "period";
 const char dbg_round[] PROGMEM = "Vround";
 const char dbg_correct[] PROGMEM = "Vcorr";
+const char dbg_options[] PROGMEM = "options";
 const char dbg_temp_correct[] PROGMEM = "tempcorr";
 const char dbg_delta_default[] PROGMEM = "deltadef";
 const char dbg_delta_pause[] PROGMEM = "deltapause";
 const char dbg_watchdog[] PROGMEM = "watchdog";
-const char dbg_vmax[] PROGMEM = "Vmax";
 const char dbg_vmaxhyst[] PROGMEM = "Vmaxhyst";
 const char dbg_seterr[] PROGMEM = "ERR";
 const char dbg_I2C_WRITE_BMS[] PROGMEM = "I2C_WRITE_BMS";
@@ -98,9 +98,13 @@ enum {
 	round_up
 };
 
+enum { // options bits
+	o_average = 0
+};
+
 struct WORK {
 	uint8_t  bms_qty;
-	uint8_t  mode;
+	uint8_t  options;
 	uint32_t UART_read_period;		// ms
 	uint8_t  round;					// round_*
 	int16_t  V_correct;				// mV
@@ -329,6 +333,10 @@ void DebugSerial_read(void)
 				work.watchdog = d;
 				DEBUG(d);
 				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
+			} else if(strncmp_P(debug_read_buffer, dbg_options, sizeof(dbg_options)-1) == 0) {
+				work.options = d;
+				DEBUG(d);
+				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 			} else if(strncmp_P(debug_read_buffer, dbg_debug, sizeof(dbg_debug)-1) == 0) {
 				debug = d;
 				DEBUG(d);
@@ -544,6 +552,22 @@ void BMS_Serial_read(void)
 					if(work.Vmaxhyst && bms_full) {
 						if(v >= bms_full && v < bms_full + work.Vmaxhyst) v = bms_full - 1;
 					}
+					if(bitRead(work.options, o_average)) {
+						// Медианный фильтр
+						static int16_t median1, median2;
+						if(median1 == 0) median1 = median2 = v;
+						int16_t median3 = v;
+						if(median1 <= median2 && median1 <= median3) {
+							v = median2 <= median3 ? median2 : median3;
+						} else if(median2 <= median1 && median2 <= median3) {
+							v = median1 <= median3 ? median1 : median3;
+						} else {
+							v = median1 <= median2 ? median1 : median2;
+						}
+						median1 = median2;
+						median2 = median3;
+						//
+					}
 					ATOMIC_BLOCK(ATOMIC_FORCEON) bms[i] = v;
 				}
 				temp = read_buffer[72] + 50 + work.temp_correct;
@@ -581,7 +605,7 @@ void setup()
 	if(b == 0 || b > 32) { // init EEPROM
 		memset(&work, 0, sizeof(work));
 		work.bms_qty = 16;
-		work.mode = 0;
+		work.options = (1<<o_average);
 		work.UART_read_period = 1;
 		work.round = round_true;
 		work.Vmaxhyst = 1;
@@ -605,6 +629,7 @@ void setup()
 	else if(work.UART_read_period == 1) DEBUG(F("Synch I2C"));
 	else DEBUG(F("OFF"));
 	DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_period); DEBUGN(F("=0-off,1-synch,X ms)"));
+	DEBUG(F("Options: ")); if(bitRead(work.options, o_average)) DEBUG(F("V-average(1) ")); DEBUG("\n");
 	DEBUG(F("BMS voltage round: ")); DEBUG(work.round == round_true ? F("5/4") : work.round == round_cut ? F("cut") : work.round == round_up ? F("up") : F("?"));
 	DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_round); DEBUGN(F("=0-5/4,1-cut,2-up)"));
 	DEBUG(F("BMS voltage correct, mV: ")); DEBUG(work.V_correct); DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_correct); DEBUGN(F("=X)"));
