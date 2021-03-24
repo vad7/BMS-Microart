@@ -69,7 +69,7 @@ SoftwareSerial DebugSerial(3, 2); // RX = D3, TX = D2
 #define DEBUGIFN(d,s) { if(debug >= d) DebugSerial.println(s); }
 char	debug_read_buffer[64];
 uint8_t debug_read_idx = 0;
-const char dbg_debug[] PROGMEM = "debug";
+const char dbg_debug[] PROGMEM = "dbg";
 const char dbg_cells[] PROGMEM = "cells";
 const char dbg_period[] PROGMEM = "period";
 const char dbg_round[] PROGMEM = "Vround";
@@ -418,40 +418,42 @@ void DebugSerial_read(void)
 					delay(30);
 				}
 #endif
-			} else if((debug_read_buffer[0] | 0x20) == 'v') { // Vn=x, n={1..bms_qty}, n=0 - all
-				if(d) {
+			} else if(debug_read_buffer[1] >= '0' && debug_read_buffer[1] <= '3' && (!debug_read_buffer[2] || !debug_read_buffer[3])) {
+				if((debug_read_buffer[0] | 0x20) == 'v') { // Vn=x, n={1..bms_qty}, n=0 - all
+					if(d) {
+						uint8_t i = strtol(debug_read_buffer + 1, NULL, 0);
+						ATOMIC_BLOCK(ATOMIC_FORCEON) {
+							if(i == 0) {
+								for(; i < work.bms_qty; i++) {
+									bms[i] = d;
+									//if(bms_full && d > bms_full+1) d = bms_full+1;
+								}
+							} else if(--i < work.bms_qty) bms[i] = d;
+						}
+						if(!bitRead(flags, f_BMS_Ready)) {
+							i2c_set_slave_addr(bms_idx + 1);
+							bitSet(flags, f_BMS_Ready);
+						}
+						DEBUG(d);
+					}
+				} else if((debug_read_buffer[0] | 0x20) == 'q') { // Qn=x, n={1..bms_qty}
 					uint8_t i = strtol(debug_read_buffer + 1, NULL, 0);
-					ATOMIC_BLOCK(ATOMIC_FORCEON) {
-						if(i == 0) {
-							for(; i < work.bms_qty; i++) {
-								bms[i] = d;
-								//if(bms_full && d > bms_full+1) d = bms_full+1;
-							}
-						} else if(--i < work.bms_qty) bms[i] = d;
-					}
-					if(!bitRead(flags, f_BMS_Ready)) {
-						i2c_set_slave_addr(bms_idx + 1);
-						bitSet(flags, f_BMS_Ready);
-					}
+					if(--i < work.bms_qty) bms_Q[i] = d;
 					DEBUG(d);
-				}
-			} else if((debug_read_buffer[0] | 0x20) == 'q') { // Qn=x, n={1..bms_qty}
-				uint8_t i = strtol(debug_read_buffer + 1, NULL, 0);
-				if(--i < work.bms_qty) bms_Q[i] = d;
-				DEBUG(d);
-			} else if((debug_read_buffer[0] | 0x20) == 'd') { // Dn=x, n={0..delta array size}
-				uint8_t i = strtol(debug_read_buffer + 1, NULL, 0);
-				if(i >= sizeof(work.BalansDelta)/sizeof(work.BalansDelta[0])) DEBUG(F("MAX IDX!"));
-				else work.BalansDelta[i] = d;
-				DEBUG(d);
-				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
-			} else if((debug_read_buffer[0] | 0x20) == 'i') { // In=x, n={0..delta array size}
-				uint8_t i = strtol(debug_read_buffer + 1, NULL, 0);
-				if(i >= sizeof(work.BalansDelta)/sizeof(work.BalansDelta[0])) DEBUG(F("MAX IDX!"));
-				else work.BalansDeltaI[i] = d;
-				DEBUG(d);
-				eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
-			} else DEBUG(F(" UNKNOWN!"));
+				} else if((debug_read_buffer[0] | 0x20) == 'd') { // Dn=x, n={0..delta array size}
+					uint8_t i = strtol(debug_read_buffer + 1, NULL, 0);
+					if(i >= sizeof(work.BalansDelta)/sizeof(work.BalansDelta[0])) DEBUG(F("MAX IDX!"));
+					else work.BalansDelta[i] = d;
+					DEBUG(d);
+					eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
+				} else if((debug_read_buffer[0] | 0x20) == 'i') { // In=x, n={0..delta array size}
+					uint8_t i = strtol(debug_read_buffer + 1, NULL, 0);
+					if(i >= sizeof(work.BalansDelta)/sizeof(work.BalansDelta[0])) DEBUG(F("MAX IDX!"));
+					else work.BalansDeltaI[i] = d;
+					DEBUG(d);
+					eeprom_update_block(&work, &EEPROM.work, sizeof(EEPROM.work));
+				} else DEBUG(F("ERR!"));
+			} else DEBUG(F("ERR!"));
 			DEBUG('\n');
 			break;
 		}
