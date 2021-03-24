@@ -133,7 +133,7 @@ enum {
 };
 uint8_t  flags = 0;					// f_*
 int8_t   debug = 0;					// 0 - off, 1 - on, 2 - detailed dump, 3 - full dump, 4 - BMS full
-uint16_t bms[BMS_QTY_MAX];			// V, hundreds
+uint16_t bms[BMS_QTY_MAX];			// *10mV
 uint8_t  bms_Q[BMS_QTY_MAX];		// %
 uint8_t  bms_idx = 0;
 uint8_t  bms_idx_prev = 0;
@@ -141,8 +141,8 @@ uint32_t bms_loop_time;
 uint32_t watchdog_timer = 0;
 uint8_t  watchdog_I2C = 0;
 uint8_t  watchdog_BMS = 0;
-int16_t  bms_min = 0;				// mV
-int16_t  bms_full = 0;				// mV
+int16_t  bms_min = 0;				// *10mV
+int16_t  bms_full = 0;				// *10mV
 bool     bms_need_read = true;
 uint8_t  map_mode = 0;
 uint8_t  temp = BMS_NO_TEMP;		// C, +50
@@ -767,8 +767,8 @@ void loop()
 				error_alarm_time = 50;
 				DEBUGIFN(0,F("- CRC ERROR!"));
 			} else if(i2c_receive[1] == 4) { // Broadcast I2CCom_JobWR
-				bms_min = (i2c_receive[2] + 200) * 10;
-				bms_full = (i2c_receive[3] + 200) * 10;
+				bms_min = i2c_receive[2] + 200;
+				bms_full = i2c_receive[3] + 200;
 				map_mode = i2c_receive[4];
 				if(debug == 2 || bitRead(debug_info, 0)) {
 					bitClear(debug_info, 0);
@@ -776,12 +776,13 @@ void loop()
 				}
 				if(work.UART_read_period == 1 && bms[0] == 0) bms_need_read = true;
 			} else if(i2c_receive[1] == 6) { // Broadcast I2CCom_JobWR_MPPT
+//				uint8_t A = i2c_receive[8];
+//				if(debug == 2 || bitRead(debug_info, 1)) {
+//					bitClear(debug_info, 1);
+//					DEBUG(F("I2C_W: I=")); DEBUGN(A);
+//				}
 				if(delta_change_pause > BMS_CHANGE_DELTA_PAUSE_MIN && !delta_new && delta_active) {
 					uint8_t A = i2c_receive[8];
-					if(debug == 2 || bitRead(debug_info, 1)) {
-						bitClear(debug_info, 1);
-						DEBUG(F("I2C_W: I=")); DEBUGN(A);
-					}
 					int8_t i = sizeof(work.BalansDelta)/sizeof(work.BalansDelta[0])-1;
 					for(; i >= 0; i--) if(A >= work.BalansDeltaI[i]) break;
 					uint16_t d = i >= 0 ? work.BalansDelta[i] : work.BalansDeltaDefault;
