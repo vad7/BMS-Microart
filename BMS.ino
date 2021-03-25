@@ -38,7 +38,7 @@ extern "C" {
 #define BMS_SERIAL_RATE				9600
 #define MAIN_LOOP_PERIOD			1		// msec
 #define BMS_NO_TEMP					255
-#define WATCHDOG_NO_CONN			40UL	// sec
+#define WATCHDOG_NO_CONN			30UL	// sec
 #define BMS_PAUSE_BETWEEN_READS		150UL	// msec
 #define BMS_CHANGE_DELTA_PAUSE_MIN  1800	// sec
 #define BMS_CHANGE_DELTA_EQUALIZER  60		// attempts (* ~1 sec)
@@ -156,6 +156,7 @@ uint8_t  i2c_receive_idx = 0;
 uint32_t bms_last_read_time = 0;
 uint16_t delta_active = 0;			// mV
 uint16_t delta_new = 0;				// mV
+uint16_t delta_next = 0;
 uint16_t delta_change_pause = 0;  	// sec
 uint8_t  delta_change_equalizer = 0; // attempts
 uint8_t  debug_info	= 0b0011;		// b0 - I2C_W1, b1 - I2C_W2
@@ -789,12 +790,15 @@ void loop()
 					for(; i >= 0; i--) if(A >= work.BalansDeltaI[i]) break;
 					uint16_t d = i >= 0 ? work.BalansDelta[i] : work.BalansDeltaDefault;
 					if(d == delta_active || (d < delta_active && delta_change_pause <= work.BalansDeltaPause)) d = 0;
-					if(d) {
+					if(d && d == delta_next) {
 						if(++delta_change_equalizer > BMS_CHANGE_DELTA_EQUALIZER) {
 							delta_change_equalizer = 0;
 							delta_new = d;
 						}
-					} else delta_change_equalizer = 0;
+					} else {
+						delta_change_equalizer = 0;
+						delta_next = d;
+					}
 					if(delta_new) {
 						if(debug >= 1) { DEBUG(F("D_NEW: ")); DEBUGN(delta_new); }
 						delta_change_pause = BMS_CHANGE_DELTA_PAUSE_MIN > 60 ? BMS_CHANGE_DELTA_PAUSE_MIN - 60 : 60;
