@@ -534,7 +534,7 @@ void BMS_Serial_read(void)
 				}
 	#endif
 				if(read_buffer[8] != work.bms_qty) {
-					DEBUGN(F("BMS: Cells num not equal setup!"));
+					DEBUGIFN(1,F("BMS: Cells num not equal setup!"));
 					last_error = ERR_BMS_Config;
 					error_alarm_time = 50;
 					if(read_buffer[8] > BMS_QTY_MAX) break;
@@ -684,8 +684,8 @@ void loop()
 		if(work.watchdog & 1) watchdog_I2C++;
 		if(work.watchdog & 2) watchdog_BMS++;
 		if(watchdog_I2C > WATCHDOG_NO_CONN || watchdog_BMS > WATCHDOG_NO_CONN) {
-			DEBUG(F("* WATCHDOG: ")); DEBUG(watchdog_I2C); DEBUG(','); DEBUGN(watchdog_BMS);
 			Wire.end();
+			DEBUG(F("* WATCHDOG: ")); DEBUG(watchdog_I2C); DEBUG(','); DEBUGN(watchdog_BMS);
 			while(1) { // reboot
 				sleep_cpu();
 				*portOutputRegister(digitalPinToPort(LED_PD)) ^= digitalPinToBitMask(LED_PD);
