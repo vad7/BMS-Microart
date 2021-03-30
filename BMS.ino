@@ -207,6 +207,7 @@ void I2C_Response() {
 	i2c_write(crc);
 	if(++bms_idx == work.bms_qty) bms_idx = 0;
 	i2c_set_slave_addr(bms_idx + 1);
+	i2c_receive_idx = 0; // clear I2C_W garbage, if available
 	watchdog_I2C = 0;
 }
 
@@ -757,7 +758,7 @@ void loop()
 	if(i2c_receive_idx && i2c_receive_idx > i2c_receive[0]) { // i2c write
 		DEBUGIF(4,F("I2C_W: "));
 		if(i2c_receive[0] >= sizeof(i2c_receive)) {
-			DEBUGIFN(0,F("LEN ERROR!"));
+			DEBUGIFN(1,F("I2C_W: LEN!"));
 			i2c_receive_idx = 0;
 		} else {
 			uint8_t crc = 0;
