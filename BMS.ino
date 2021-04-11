@@ -46,7 +46,7 @@ const uint8_t BMS_Cmd_Request[] PROGMEM = { 0x55, 0xAA, 0x01, 0xFF, 0x00, 0x00, 
 const uint8_t BMS_Cmd_ChangeDelta[] PROGMEM = { 0x55, 0xAA, 0x01, 0xF2 };
 
 //#define MICROART_BMS_READWRITE				// Include code for Microart BMS
-#define DEBUG_TO_SERIAL				115200  // 19200
+#define DEBUG_TO_SERIAL				76800 // 57600
 #define DEBUG_READ_PERIOD			1000UL	// ms
 //#define DebugSerial 				Serial  // when active - UART BMS does not used
 
