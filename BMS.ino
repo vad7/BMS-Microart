@@ -46,16 +46,20 @@ const uint8_t BMS_Cmd_Request[] PROGMEM = { 0x55, 0xAA, 0x01, 0xFF, 0x00, 0x00, 
 const uint8_t BMS_Cmd_ChangeDelta[] PROGMEM = { 0x55, 0xAA, 0x01, 0xF2 };
 
 //#define MICROART_BMS_READWRITE				// Include code for Microart BMS
-#define DEBUG_TO_SERIAL				76800 // 57600
+#define DEBUG_TO_SERIAL				38400 // 57600
 #define DEBUG_READ_PERIOD			1000UL	// ms
 //#define DebugSerial 				Serial  // when active - UART BMS does not used
 
 #ifdef DEBUG_TO_SERIAL
 #ifndef DebugSerial
-#include <SoftwareSerial.h>
-SoftwareSerial DebugSerial(3, 2); // RX = D3, TX = D2
+//#include <SoftwareSerial.h>
+//SoftwareSerial DebugSerial(3, 2); // RX = D3, TX = D2
+
 //#include "libraries\AltSoftSerial\AltSoftSerial.h"
 //AltSoftSerial DebugSerial;			// pins: RX = D8, TX = D9, unusable = D10
+
+#include "libraries\NeoSWSerial\src\NeoSWSerial.h"
+NeoSWSerial DebugSerial( 3, 2 );	// RX, TX
 #else
 #undef BMS_SERIAL
 #endif
@@ -99,7 +103,8 @@ enum {
 };
 
 enum { // options bits
-	o_average = 0
+	o_average = 0,
+	o_median
 };
 
 struct WORK {
@@ -135,6 +140,7 @@ uint8_t  flags = 0;					// f_*
 int8_t   debug = 0;					// 0 - off, 1 - on, 2 - detailed dump, 3 - full dump, 4 - BMS full
 uint16_t bms[BMS_QTY_MAX];			// *10mV
 uint8_t  bms_Q[BMS_QTY_MAX];		// %
+uint16_t bms_avg[BMS_QTY_MAX];
 uint8_t  bms_idx = 0;
 uint8_t  bms_idx_prev = 0;
 uint32_t bms_loop_time;
@@ -285,7 +291,7 @@ void DebugSerial_read(void)
 {
 	while(DebugSerial.available()) {
 		int r = DebugSerial.read();
-		if(r == -1) break;
+		if(r == -1 || r == '\n') break;
 		debug_read_buffer[debug_read_idx++] = r;
 		if(r == '\r' || debug_read_idx == sizeof(debug_read_buffer)-1) {
 			debug_read_buffer[debug_read_idx-1] = '\0';
@@ -550,13 +556,17 @@ void BMS_Serial_read(void)
 						v += work.V_correct;
 						if(v < 0) v = 0;
 					}
+					if(bitRead(work.options, o_average)) {
+						if(bms_avg[i]) v = (bms_avg[i] + v) / 2;
+						bms_avg[i] = v;
+					}
 					if(work.round == round_true) v += 5;
 					else if(work.round == round_up) v += 9;
 					v /= 10; // 0.001 -> 0.01
 					if(work.Vmaxhyst && bms_full) {
 						if(v >= bms_full && v < bms_full + work.Vmaxhyst) v = bms_full - 1;
 					}
-					if(bitRead(work.options, o_average)) {
+					if(bitRead(work.options, o_median)) {
 						// Медианный фильтр
 						static int16_t median1, median2;
 						if(median1 == 0) median1 = median2 = v;
@@ -633,7 +643,7 @@ void setup()
 	else if(work.UART_read_period == 1) DEBUG(F("Synch I2C"));
 	else DEBUG(F("OFF"));
 	DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_period); DEBUGN(F("=0-off,1-synch,X ms)"));
-	DEBUG(F("Options: ")); if(bitRead(work.options, o_average)) DEBUG(F("V-average(1) ")); DEBUG("\n");
+	DEBUG(F("Options(bits: median,average): ")); if(bitRead(work.options, o_average)) DEBUG(F("average ")); if(bitRead(work.options, o_median)) DEBUG(F("median ")); DEBUG("\n");
 	DEBUG(F("BMS voltage round: ")); DEBUG(work.round == round_true ? F("5/4") : work.round == round_cut ? F("cut") : work.round == round_up ? F("up") : F("?"));
 	DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_round); DEBUGN(F("=0-5/4,1-cut,2-up)"));
 	DEBUG(F("BMS voltage correct, mV: ")); DEBUG(work.V_correct); DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_correct); DEBUGN(F("=X)"));
