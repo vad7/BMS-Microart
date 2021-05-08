@@ -556,16 +556,6 @@ void BMS_Serial_read(void)
 						v += work.V_correct;
 						if(v < 0) v = 0;
 					}
-					if(bitRead(work.options, o_average)) {
-						if(bms_avg[i]) v = (bms_avg[i] + v) / 2;
-						bms_avg[i] = v;
-					}
-					if(work.round == round_true) v += 5;
-					else if(work.round == round_up) v += 9;
-					v /= 10; // 0.001 -> 0.01
-					if(work.Vmaxhyst && bms_full) {
-						if(v >= bms_full && v < bms_full + work.Vmaxhyst) v = bms_full - 1;
-					}
 					if(bitRead(work.options, o_median)) {
 						// Медианный фильтр
 						static int16_t median1, median2;
@@ -581,6 +571,16 @@ void BMS_Serial_read(void)
 						median1 = median2;
 						median2 = median3;
 						//
+					}
+					if(bitRead(work.options, o_average)) {
+						if(bms_avg[i]) v = (bms_avg[i] + v) / 2;
+						bms_avg[i] = v;
+					}
+					if(work.round == round_true) v += 5;
+					else if(work.round == round_up) v += 9;
+					v /= 10; // 0.001 -> 0.01
+					if(work.Vmaxhyst && bms_full) {
+						if(v >= bms_full && v < bms_full + work.Vmaxhyst) v = bms_full - 1;
 					}
 					ATOMIC_BLOCK(ATOMIC_FORCEON) bms[i] = v;
 				}
