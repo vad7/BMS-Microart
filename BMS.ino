@@ -715,11 +715,13 @@ void loop()
 			if(debugmode) {
 				DEBUG(F("* WATCHDOG: ")); DEBUG(watchdog_I2C); DEBUG(','); DEBUGN(watchdog_BMS);
 			}
-			while(1) { // reboot
-				sleep_cpu();
-				*portOutputRegister(digitalPinToPort(LED_PD)) ^= digitalPinToBitMask(LED_PD);
-				_delay_ms(100);
-			}
+			if(debugmode == 1) {
+				watchdog_BMS = watchdog_I2C = 0;
+			} else while(1) { // reboot
+					sleep_cpu();
+					*portOutputRegister(digitalPinToPort(LED_PD)) ^= digitalPinToBitMask(LED_PD);
+					_delay_ms(100);
+				}
 		}
 		if(delta_change_pause < 0xFFFF) delta_change_pause++;
 #ifdef DEBUG_TO_SERIAL
@@ -730,7 +732,7 @@ void loop()
 		led_flashing = m;
 		if(error_alarm_time) error_alarm_time--;
 #if defined(DEBUG_TO_SERIAL) && defined(DEBUG_TO_THE_SAME_PORT)
-		debugmode = !(*portInputRegister(digitalPinToPort(DEBUG_TO_THE_SAME_PORT)) & digitalPinToBitMask(DEBUG_TO_THE_SAME_PORT));
+		//debugmode = !(*portInputRegister(digitalPinToPort(DEBUG_TO_THE_SAME_PORT)) & digitalPinToBitMask(DEBUG_TO_THE_SAME_PORT));
 #endif
 		if(debugmode == 1) *portOutputRegister(digitalPinToPort(LED_PD)) |= digitalPinToBitMask(LED_PD);
 		else *portOutputRegister(digitalPinToPort(LED_PD)) ^= digitalPinToBitMask(LED_PD);
