@@ -1,6 +1,6 @@
 /*
  * Copyright (c) 2021 by Vadim Kulakov vad7@yahoo.com, vad711
-  *
+ *
  * This file is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public
  * License as published by the Free Software Foundation; either
@@ -21,10 +21,11 @@ RJ-11 6P6C:
 
 */
 
-#define VERSION F("1.0")
+#define VERSION F("1.1")
 
 #include "Arduino.h"
 #include <avr/wdt.h>
+#include <avr/sleep.h>
 #include <util/atomic.h>
 #include <Wire.h>
 extern "C" {
@@ -34,8 +35,6 @@ extern "C" {
 #define LED_PD						LED_BUILTIN
 #define I2C_FREQ					2500
 #define BMS_QTY_MAX					32
-#define BMS_SERIAL 					Serial	// if not used - omit
-#define BMS_SERIAL_RATE				9600
 #define MAIN_LOOP_PERIOD			1		// msec
 #define BMS_NO_TEMP					255
 #define WATCHDOG_NO_CONN			30UL	// sec
@@ -45,23 +44,26 @@ extern "C" {
 const uint8_t BMS_Cmd_Request[] PROGMEM = { 0x55, 0xAA, 0x01, 0xFF, 0x00, 0x00, 0xFF };
 const uint8_t BMS_Cmd_ChangeDelta[] PROGMEM = { 0x55, 0xAA, 0x01, 0xF2 };
 
-//#define MICROART_BMS_READWRITE				// Include code for Microart BMS
-#define DEBUG_TO_SERIAL				38400 // 57600
+#define BMS_SERIAL 					Serial	// if not used - omit
+#define BMS_SERIAL_RATE				9600
+#define DEBUG_TO_SERIAL				// use serial for debug or setup
+#define DEBUG_TO_THE_SAME_PORT		2 		// pin #. Debug to the same serial port as BMS_SERIAL, activate - connect pin to GND before power on.
+#define DEBUG_TO_SERIAL_PORT		38400 // 57600
 #define DEBUG_READ_PERIOD			1000UL	// ms
-//#define DebugSerial 				Serial  // when active - UART BMS does not used
+//#define MICROART_BMS_READWRITE				// Include code for Microart BMS
 
 #ifdef DEBUG_TO_SERIAL
-#ifndef DebugSerial
+#ifdef DEBUG_TO_THE_SAME_PORT
+#define DebugSerial 				Serial
+	#else
 //#include <SoftwareSerial.h>
 //SoftwareSerial DebugSerial(3, 2); // RX = D3, TX = D2
 
 //#include "libraries\AltSoftSerial\AltSoftSerial.h"
 //AltSoftSerial DebugSerial;			// pins: RX = D8, TX = D9, unusable = D10
 
-#include "libraries\NeoSWSerial\src\NeoSWSerial.h"
+#include "NeoSWSerial.h"
 NeoSWSerial DebugSerial( 3, 2 );	// RX, TX
-#else
-#undef BMS_SERIAL
 #endif
 #endif
 
@@ -138,6 +140,7 @@ enum {
 };
 uint8_t  flags = 0;					// f_*
 int8_t   debug = 0;					// 0 - off, 1 - on, 2 - detailed dump, 3 - full dump, 4 - BMS full
+uint8_t  debugmode = 0;				// 0 - off, 1 - debug to the same port as BMS_SERIAL
 uint16_t bms[BMS_QTY_MAX];			// *10mV
 uint8_t  bms_Q[BMS_QTY_MAX];		// %
 uint16_t bms_avg[BMS_QTY_MAX];
@@ -611,15 +614,26 @@ void setup()
 	PRR = (1<<PRSPI) | (1<<PRADC); // Power off: SPI, ADC
 	BMS_SERIAL.begin(BMS_SERIAL_RATE);
 #ifdef DEBUG_TO_SERIAL
-	DebugSerial.begin(DEBUG_TO_SERIAL);
-	DEBUG(F("\nBMS gate to Microart, v")); DEBUGN(VERSION);
-	DEBUGN(F("Copyright by Vadim Kulakov (c) 2021, vad7@yahoo.com"));
+#ifdef DEBUG_TO_THE_SAME_PORT
+	pinMode(DEBUG_TO_THE_SAME_PORT, INPUT_PULLUP);
+	wdt_reset();
+	delay(50);
+	debugmode = !(*portInputRegister(digitalPinToPort(DEBUG_TO_THE_SAME_PORT)) & digitalPinToBitMask(DEBUG_TO_THE_SAME_PORT));
+	wdt_reset();
+#else
+	DebugSerial.begin(DEBUG_TO_SERIAL_PORT);
+	debugmode = 2;
+#endif
+	if(debugmode) {
+		DEBUG(F("\nBMS gate to Microart, v")); DEBUGN(VERSION);
+		DEBUGN(F("Copyright by Vadim Kulakov (c) 2022, vad7@yahoo.com"));
+	}
 #endif
 	uint8_t b = eeprom_read_byte((uint8_t*)&EEPROM.work.bms_qty);
 	if(b == 0 || b > 32) { // init EEPROM
 		memset(&work, 0, sizeof(work));
 		work.bms_qty = 16;
-		work.options = (1<<o_average);
+		work.options = 0; //(1<<o_average);
 		work.UART_read_period = 1;
 		work.round = round_true;
 		work.Vmaxhyst = 1;
@@ -634,37 +648,39 @@ void setup()
 	eeprom_read_block(&work, &EEPROM.work, sizeof(EEPROM.work));
 	memset(bms_Q, 0, sizeof(bms_Q));
 #ifdef DEBUG_TO_SERIAL
-	DEBUG(F("Cells: ")); DEBUG(work.bms_qty); DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_cells); DEBUGN(F("=X)"));
-	DEBUG(F("Watchdog(")); DEBUG(WATCHDOG_NO_CONN); DEBUG(F("s): ")); if(!work.watchdog) DEBUG(F("NONE")); else { if(work.watchdog & 1) DEBUG(F("I2C ")); if(work.watchdog & 2) DEBUG(F("BMS")); }
-	DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_watchdog); DEBUGN(F("=1-I2C,2-BMS,3-all)"));
-	DEBUGN(F("BMS slave address: 1"));
-	DEBUG(F("BMS read period, ms: "));
-	if(work.UART_read_period > 1) DEBUG(work.UART_read_period);
-	else if(work.UART_read_period == 1) DEBUG(F("Synch I2C"));
-	else DEBUG(F("OFF"));
-	DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_period); DEBUGN(F("=0-off,1-synch,X ms)"));
-	DEBUG(F("Options(bits: median,average): ")); if(bitRead(work.options, o_average)) DEBUG(F("average ")); if(bitRead(work.options, o_median)) DEBUG(F("median ")); DEBUG("\n");
-	DEBUG(F("BMS voltage round: ")); DEBUG(work.round == round_true ? F("5/4") : work.round == round_cut ? F("cut") : work.round == round_up ? F("up") : F("?"));
-	DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_round); DEBUGN(F("=0-5/4,1-cut,2-up)"));
-	DEBUG(F("BMS voltage correct, mV: ")); DEBUG(work.V_correct); DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_correct); DEBUGN(F("=X)"));
-	DEBUG(F("BMS cell max catch, 10mV: ")); if(work.Vmaxhyst) { DEBUG('+'); DEBUG(work.Vmaxhyst); } else DEBUG(F("OFF"));
-	DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_vmaxhyst); DEBUGN(F("=X)"));
-	DEBUG(F("BMS Temp correct, C: ")); DEBUG(work.temp_correct); DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_temp_correct); DEBUGN(F("=X)"));
-	DEBUG(F("BMS Balans delta, mV: ")); DEBUG(work.BalansDeltaDefault); DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_delta_default); DEBUGN(F("=X)"));
-	DEBUG(F("BMS Balans delta array, [I>mV]: "));
-	for(uint8_t i = 0; i < sizeof(work.BalansDelta)/sizeof(work.BalansDelta[0]); i++) {	DEBUG(work.BalansDeltaI[i]); DEBUG('>'); DEBUG(work.BalansDelta[i]); DEBUG(' '); }
-	DEBUGN(F(" (Delta: Dn=X, Current: In=X)"));
-	DEBUG(F("BMS Balans delta decrease pause, s: ")); DEBUG(work.BalansDeltaPause);  DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_delta_pause); DEBUGN(F("=X)"));
-	DEBUGN(F("\nCommands:"));
-	DEBUG((const __FlashStringHelper*)dbg_debug); DEBUGN(F("=0,1,2,3"));
-	DEBUG((const __FlashStringHelper*)dbg_temp); DEBUGN(F("=X"));
-	DEBUG((const __FlashStringHelper*)dbg_delta_change_pause); DEBUGN(F("=X"));
-	DEBUGN(F("Out: Vn=X (All: n=0)\nQn=X"));
-	DEBUG((const __FlashStringHelper*)dbg_seterr); DEBUGN(F("=X"));
-#ifdef MICROART_BMS_READWRITE
-	DEBUG((const __FlashStringHelper*)dbg_I2C_READ_BMS); DEBUGN(F("=addr"));
-	DEBUG((const __FlashStringHelper*)dbg_I2C_WRITE_BMS); DEBUGN(F("addr=X"));
-#endif
+	if(debugmode) {
+		DEBUG(F("Cells: ")); DEBUG(work.bms_qty); DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_cells); DEBUGN(F("=X)"));
+		DEBUG(F("Watchdog(")); DEBUG(WATCHDOG_NO_CONN); DEBUG(F("s): ")); if(!work.watchdog) DEBUG(F("NONE")); else { if(work.watchdog & 1) DEBUG(F("I2C ")); if(work.watchdog & 2) DEBUG(F("BMS")); }
+		DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_watchdog); DEBUGN(F("=1-I2C,2-BMS,3-all)"));
+		DEBUGN(F("BMS slave address: 1"));
+		DEBUG(F("BMS read period, ms: "));
+		if(work.UART_read_period > 1) DEBUG(work.UART_read_period);
+		else if(work.UART_read_period == 1) DEBUG(F("Synch I2C"));
+		else DEBUG(F("OFF"));
+		DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_period); DEBUGN(F("=0-off,1-synch,X ms)"));
+		DEBUG(F("Options(bits: median,average): ")); if(bitRead(work.options, o_average)) DEBUG(F("average ")); if(bitRead(work.options, o_median)) DEBUG(F("median ")); DEBUG("\n");
+		DEBUG(F("BMS voltage round: ")); DEBUG(work.round == round_true ? F("5/4") : work.round == round_cut ? F("cut") : work.round == round_up ? F("up") : F("?"));
+		DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_round); DEBUGN(F("=0-5/4,1-cut,2-up)"));
+		DEBUG(F("BMS voltage correct, mV: ")); DEBUG(work.V_correct); DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_correct); DEBUGN(F("=X)"));
+		DEBUG(F("BMS cell max catch, 10mV: ")); if(work.Vmaxhyst) { DEBUG('+'); DEBUG(work.Vmaxhyst); } else DEBUG(F("OFF"));
+		DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_vmaxhyst); DEBUGN(F("=X)"));
+		DEBUG(F("BMS Temp correct, C: ")); DEBUG(work.temp_correct); DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_temp_correct); DEBUGN(F("=X)"));
+		DEBUG(F("BMS Balans delta, mV: ")); DEBUG(work.BalansDeltaDefault); DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_delta_default); DEBUGN(F("=X)"));
+		DEBUG(F("BMS Balans delta array, [I>mV]: "));
+		for(uint8_t i = 0; i < sizeof(work.BalansDelta)/sizeof(work.BalansDelta[0]); i++) {	DEBUG(work.BalansDeltaI[i]); DEBUG('>'); DEBUG(work.BalansDelta[i]); DEBUG(' '); }
+		DEBUGN(F(" (Delta: Dn=X, Current: In=X)"));
+		DEBUG(F("BMS Balans delta decrease pause, s: ")); DEBUG(work.BalansDeltaPause);  DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_delta_pause); DEBUGN(F("=X)"));
+		DEBUGN(F("\nCommands:"));
+		DEBUG((const __FlashStringHelper*)dbg_debug); DEBUGN(F("=0,1,2,3"));
+		DEBUG((const __FlashStringHelper*)dbg_temp); DEBUGN(F("=X"));
+		DEBUG((const __FlashStringHelper*)dbg_delta_change_pause); DEBUGN(F("=X"));
+		DEBUGN(F("Out: Vn=X (All: n=0)\nQn=X"));
+		DEBUG((const __FlashStringHelper*)dbg_seterr); DEBUGN(F("=X"));
+	#ifdef MICROART_BMS_READWRITE
+		DEBUG((const __FlashStringHelper*)dbg_I2C_READ_BMS); DEBUGN(F("=addr"));
+		DEBUG((const __FlashStringHelper*)dbg_I2C_WRITE_BMS); DEBUGN(F("addr=X"));
+	#endif
+	}
 #endif
 	//
 	Wire.begin();
@@ -696,7 +712,9 @@ void loop()
 		if(work.watchdog & 2) watchdog_BMS++;
 		if(watchdog_I2C > WATCHDOG_NO_CONN || watchdog_BMS > WATCHDOG_NO_CONN) {
 			Wire.end();
-			DEBUG(F("* WATCHDOG: ")); DEBUG(watchdog_I2C); DEBUG(','); DEBUGN(watchdog_BMS);
+			if(debugmode) {
+				DEBUG(F("* WATCHDOG: ")); DEBUG(watchdog_I2C); DEBUG(','); DEBUGN(watchdog_BMS);
+			}
 			while(1) { // reboot
 				sleep_cpu();
 				*portOutputRegister(digitalPinToPort(LED_PD)) ^= digitalPinToBitMask(LED_PD);
@@ -711,13 +729,17 @@ void loop()
 	if(m - led_flashing >= (error_alarm_time == 0 ? 1500UL : 200UL)) {
 		led_flashing = m;
 		if(error_alarm_time) error_alarm_time--;
-	    *portOutputRegister(digitalPinToPort(LED_PD)) ^= digitalPinToBitMask(LED_PD);
+#if defined(DEBUG_TO_SERIAL) && defined(DEBUG_TO_THE_SAME_PORT)
+		debugmode = !(*portInputRegister(digitalPinToPort(DEBUG_TO_THE_SAME_PORT)) & digitalPinToBitMask(DEBUG_TO_THE_SAME_PORT));
+#endif
+		if(debugmode == 1) *portOutputRegister(digitalPinToPort(LED_PD)) |= digitalPinToBitMask(LED_PD);
+		else *portOutputRegister(digitalPinToPort(LED_PD)) ^= digitalPinToBitMask(LED_PD);
 	}
 	if(bms_idx_prev != bms_idx) {
 		if(bms_idx == 0) {
 			bms_need_read = true;
 #ifdef DEBUG_TO_SERIAL
-			if(debug >= 2) {
+			if(debugmode && debug >= 2) {
 				DEBUG(F("I2C ms: "));
 				DEBUGN(m - bms_loop_time);
 				bms_loop_time = m;
@@ -725,7 +747,7 @@ void loop()
 #endif
 		}
 #ifdef DEBUG_TO_SERIAL
-		if(debug >= 4) {
+		if(debugmode && debug >= 4) {
 			DEBUG(F("I2C_R_"));
 			DEBUG(bms_idx_prev + 1);
 			DEBUG(F("->"));
@@ -736,55 +758,59 @@ void loop()
 	}
 
 	// Read from UART
-	BMS_Serial_read();
-	m = millis();
-	if(m - bms_last_read_time > BMS_PAUSE_BETWEEN_READS) {
-		bms_last_read_time = m;
-		if((work.UART_read_period == 1 && bms_need_read) || (work.UART_read_period > 1 && m - bms_reading > work.UART_read_period)) {
-			bms_reading = m;
-			bms_last_read_time += BMS_PAUSE_BETWEEN_READS;
-			bms_need_read = false;
-			read_idx = 0;	// reset read index
-			for(uint8_t i = 0; i < sizeof(BMS_Cmd_Request); i++) BMS_SERIAL.write(pgm_read_byte(&BMS_Cmd_Request[i]));
-		} else if(delta_new) {
-			uint8_t crc = 0;
-			uint8_t b;
-			read_idx = 0;	// reset read index
-			for(uint8_t i = 0; i < sizeof(BMS_Cmd_ChangeDelta); i++) {
-				BMS_SERIAL.write(b = pgm_read_byte(&BMS_Cmd_ChangeDelta[i]));
+	if(debugmode != 1) {
+		BMS_Serial_read();
+		m = millis();
+		if(m - bms_last_read_time > BMS_PAUSE_BETWEEN_READS) {
+			bms_last_read_time = m;
+			if((work.UART_read_period == 1 && bms_need_read) || (work.UART_read_period > 1 && m - bms_reading > work.UART_read_period)) {
+				bms_reading = m;
+				bms_last_read_time += BMS_PAUSE_BETWEEN_READS;
+				bms_need_read = false;
+				read_idx = 0;	// reset read index
+				for(uint8_t i = 0; i < sizeof(BMS_Cmd_Request); i++) BMS_SERIAL.write(pgm_read_byte(&BMS_Cmd_Request[i]));
+			} else if(delta_new) {
+				uint8_t crc = 0;
+				uint8_t b;
+				read_idx = 0;	// reset read index
+				for(uint8_t i = 0; i < sizeof(BMS_Cmd_ChangeDelta); i++) {
+					BMS_SERIAL.write(b = pgm_read_byte(&BMS_Cmd_ChangeDelta[i]));
+					crc += b;
+				}
+				b = delta_new >> 8;
+				BMS_SERIAL.write(b);
 				crc += b;
+				b = delta_new & 0xFF;
+				BMS_SERIAL.write(b);
+				crc += b;
+				BMS_SERIAL.write(crc);
+				delta_new = 0;
 			}
-			b = delta_new >> 8;
-			BMS_SERIAL.write(b);
-			crc += b;
-			b = delta_new & 0xFF;
-			BMS_SERIAL.write(b);
-			crc += b;
-			BMS_SERIAL.write(crc);
-			delta_new = 0;
 		}
 	}
 	// I2C slave receive
 	if(i2c_receive_idx && i2c_receive_idx > i2c_receive[0]) { // i2c write
-		DEBUGIF(4,F("I2C_W: "));
+		if(debugmode) DEBUGIF(4,F("I2C_W: "));
 		if(i2c_receive[0] >= sizeof(i2c_receive)) {
-			DEBUGIFN(1,F("I2C_W: LEN!"));
+			if(debugmode) DEBUGIFN(1,F("I2C_W: LEN!"));
 			i2c_receive_idx = 0;
 		} else {
 			uint8_t crc = 0;
 			for(uint8_t i = 0; i <= i2c_receive[0]; i++) { // +CRC
 				crc += i2c_receive[i];
-				DEBUGIF(4,i2c_receive[i]);
-				DEBUGIF(4," ");
+				if(debugmode) {
+					DEBUGIF(4,i2c_receive[i]);
+					DEBUGIF(4," ");
+				}
 			}
 			if(crc != 0) {
 				error_alarm_time = 50;
-				DEBUGIFN(0,F("- CRC ERROR!"));
+				if(debugmode) DEBUGIFN(0,F("- CRC ERROR!"));
 			} else if(i2c_receive[1] == 4) { // Broadcast I2CCom_JobWR
 				bms_min = i2c_receive[2] + 200;
 				bms_full = i2c_receive[3] + 200;
 				map_mode = i2c_receive[4];
-				if(debug == 2 || bitRead(debug_info, 0)) {
+				if(debugmode && (debug == 2 || bitRead(debug_info, 0))) {
 					bitClear(debug_info, 0);
 					DEBUG(F("I2C_W: Min=")); DEBUG(bms_min); DEBUG(F(",Max=")); DEBUG(bms_full); DEBUG(F(",Mode=")); DEBUGN(map_mode);
 				}
@@ -811,7 +837,7 @@ void loop()
 						delta_next = d;
 					}
 					if(delta_new) {
-						if(debug >= 1) { DEBUG(F("D_NEW: ")); DEBUGN(delta_new); }
+						if(debugmode && debug >= 1) { DEBUG(F("D_NEW: ")); DEBUGN(delta_new); }
 						delta_change_pause = BMS_CHANGE_DELTA_PAUSE_MIN > 60 ? BMS_CHANGE_DELTA_PAUSE_MIN - 60 : 60;
 					}
 				}
@@ -821,7 +847,7 @@ void loop()
 			} else i2c_receive_idx = 0;
 			watchdog_I2C = 0;
 		}
-		DEBUGIF(4,F("\n"));
+		if(debugmode) DEBUGIF(4,F("\n"));
 	}
 	delay(MAIN_LOOP_PERIOD);
 }
