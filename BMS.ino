@@ -665,9 +665,11 @@ void setup()
 		DEBUG(F("BMS cell max catch, 10mV: ")); if(work.Vmaxhyst) { DEBUG('+'); DEBUG(work.Vmaxhyst); } else DEBUG(F("OFF"));
 		DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_vmaxhyst); DEBUGN(F("=X)"));
 		DEBUG(F("BMS Temp correct, C: ")); DEBUG(work.temp_correct); DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_temp_correct); DEBUGN(F("=X)"));
-		DEBUG(F("BMS Balans delta, mV: ")); DEBUG(work.BalansDeltaDefault); DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_delta_default); DEBUGN(F("=X)"));
-		DEBUG(F("BMS Balans delta array, [I>mV]: "));
-		for(uint8_t i = 0; i < sizeof(work.BalansDelta)/sizeof(work.BalansDelta[0]); i++) {	DEBUG(work.BalansDeltaI[i]); DEBUG('>'); DEBUG(work.BalansDelta[i]); DEBUG(' '); }
+		DEBUG(F("BMS Balans delta, mV: "));
+		if(work.BalansDeltaDefault) DEBUG(work.BalansDeltaDefault); else DEBUG(F("OFF"));
+		DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_delta_default); DEBUGN(F("=X)"));
+		DEBUG(F("BMS Balans delta array, [MPPT(I)>=A:mV]: "));
+		for(uint8_t i = 0; i < sizeof(work.BalansDelta)/sizeof(work.BalansDelta[0]); i++) {	DEBUG(work.BalansDeltaI[i]); DEBUG(':'); DEBUG(work.BalansDelta[i]); DEBUG(' '); }
 		DEBUGN(F(" (Delta: Dn=X, Current: In=X)"));
 		DEBUG(F("BMS Balans delta decrease pause, s: ")); DEBUG(work.BalansDeltaPause);  DEBUG(F(" (")); DEBUG((const __FlashStringHelper*)dbg_delta_pause); DEBUGN(F("=X)"));
 		DEBUGN(F("\nCommands:"));
@@ -823,7 +825,7 @@ void loop()
 //					bitClear(debug_info, 1);
 //					DEBUG(F("I2C_W: I=")); DEBUGN(A);
 //				}
-				if(delta_change_pause > BMS_CHANGE_DELTA_PAUSE_MIN && !delta_new && delta_active) {
+				if(delta_change_pause > BMS_CHANGE_DELTA_PAUSE_MIN && !delta_new && delta_active && work.BalansDeltaDefault) {
 					uint8_t A = i2c_receive[8];
 					int8_t i = sizeof(work.BalansDelta)/sizeof(work.BalansDelta[0])-1;
 					for(; i >= 0; i--) if(A >= work.BalansDeltaI[i]) break;
