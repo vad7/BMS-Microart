@@ -21,7 +21,7 @@ RJ-11 6P6C:
 
 */
 
-#define VERSION F("1.1")
+#define VERSION F("1.2")
 
 #include "Arduino.h"
 #include <avr/wdt.h>
@@ -41,6 +41,7 @@ extern "C" {
 #define BMS_PAUSE_BETWEEN_READS		150UL	// msec
 #define BMS_CHANGE_DELTA_PAUSE_MIN  1800	// sec
 #define BMS_CHANGE_DELTA_EQUALIZER  60		// attempts (* ~1 sec)
+#define BMS_CHANGE_DELTA_DISCHARGE  30		// sec, When I2C_MAP_MODE = M_ON balance delta => BalansDelta[max]
 const uint8_t BMS_Cmd_Request[] PROGMEM = { 0x55, 0xAA, 0x01, 0xFF, 0x00, 0x00, 0xFF };
 const uint8_t BMS_Cmd_ChangeDelta[] PROGMEM = { 0x55, 0xAA, 0x01, 0xF2 };
 
@@ -107,6 +108,14 @@ enum {
 enum { // options bits
 	o_average = 0,
 	o_median
+};
+
+enum I2C_MAP_MODE {
+	M_OFF        = 0,//выключенно без сети
+	M_OFFNET     = 1,//выключенно с сетью
+	M_ON         = 2,//включенно без сети (работает МАП)
+	M_ONNET      = 3,//включенно с сетью
+	M_ONCHARGE   = 4,//включенно с зарядом
 };
 
 struct WORK {
@@ -825,24 +834,34 @@ void loop()
 //					bitClear(debug_info, 1);
 //					DEBUG(F("I2C_W: I=")); DEBUGN(A);
 //				}
-				if(delta_change_pause > BMS_CHANGE_DELTA_PAUSE_MIN && !delta_new && delta_active && work.BalansDeltaDefault) {
-					uint8_t A = i2c_receive[8];
-					int8_t i = sizeof(work.BalansDelta)/sizeof(work.BalansDelta[0])-1;
-					for(; i >= 0; i--) if(A >= work.BalansDeltaI[i]) break;
-					uint16_t d = i >= 0 ? work.BalansDelta[i] : work.BalansDeltaDefault;
-					if(d == delta_active || (d < delta_active && delta_change_pause <= work.BalansDeltaPause)) d = 0;
-					if(d && d == delta_next) {
-						if(++delta_change_equalizer > BMS_CHANGE_DELTA_EQUALIZER) {
-							delta_change_equalizer = 0;
-							delta_new = d;
+				if(work.BalansDeltaDefault && !delta_new && delta_active) {
+					if(map_mode == M_ON) { // on battery
+						if(delta_change_pause > BMS_CHANGE_DELTA_DISCHARGE) {
+							if(delta_active != work.BalansDelta[sizeof(work.BalansDelta)/sizeof(work.BalansDelta[0])-1]) { // last (max delta)
+								delta_change_pause = BMS_CHANGE_DELTA_DISCHARGE / 2;
+								delta_new = work.BalansDelta[sizeof(work.BalansDelta)/sizeof(work.BalansDelta[0])-1];
+								delta_change_equalizer = 0;
+							}
 						}
-					} else {
-						delta_change_equalizer = 0;
-						delta_next = d;
-					}
-					if(delta_new) {
-						if(debugmode && debug >= 1) { DEBUG(F("D_NEW: ")); DEBUGN(delta_new); }
-						delta_change_pause = BMS_CHANGE_DELTA_PAUSE_MIN > 60 ? BMS_CHANGE_DELTA_PAUSE_MIN - 60 : 60;
+					} else if(delta_change_pause > BMS_CHANGE_DELTA_PAUSE_MIN) {
+						uint8_t A = i2c_receive[8];
+						int8_t i = sizeof(work.BalansDelta)/sizeof(work.BalansDelta[0])-1;
+						for(; i >= 0; i--) if(A >= work.BalansDeltaI[i]) break;
+						uint16_t d = i >= 0 ? work.BalansDelta[i] : work.BalansDeltaDefault;
+						if(d == delta_active || (d < delta_active && delta_change_pause <= work.BalansDeltaPause)) d = 0;
+						if(d && d == delta_next) {
+							if(++delta_change_equalizer > BMS_CHANGE_DELTA_EQUALIZER) {
+								delta_new = d;
+								delta_change_equalizer = 0;
+							}
+						} else {
+							delta_next = d;
+							delta_change_equalizer = 0;
+						}
+						if(delta_new) {
+							if(debugmode && debug >= 1) { DEBUG(F("D_NEW: ")); DEBUGN(delta_new); }
+							delta_change_pause = BMS_CHANGE_DELTA_PAUSE_MIN > 60 ? BMS_CHANGE_DELTA_PAUSE_MIN - 60 : 60;
+						}
 					}
 				}
 			}
